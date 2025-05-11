@@ -1,3 +1,6 @@
 [submodule "betaflight"]
 	path = betaflight
 	url = https://github.com/rl-tools/betaflight-firmware.git
+[submodule "blob"]
+	path = blob
+	url = https://github.com/rl-tools/px4-blob.git
