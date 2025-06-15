@@ -1,1 +1,1 @@
-docker build -t rltools/betaflight . && docker run -it -v $(pwd):/betaflight --mount type=bind,source=$(cd ../../ && pwd),target=/rl-tools,readonly --rm rltools/betaflight
+docker build -t rltools/betaflight . && docker run -it --mount type=bind,source=$(cd ../../ && pwd),target=/rl-tools,readonly -v $(pwd):/rl-tools/embedded_platforms/betaflight  --rm rltools/betaflight
