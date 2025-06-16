@@ -16,8 +16,8 @@ from l2f import vector8 as vector
 from foundation_model import QuadrotorPolicy
 
 
-# subprocess.Popen(["./betaflight/obj/betaflight_4.6.0_SITL"], cwd=os.path.dirname(os.path.abspath(__file__)))
-# time.sleep(2)
+subprocess.Popen(["./betaflight/obj/betaflight_4.6.0_SITL"], cwd=os.path.dirname(os.path.abspath(__file__)))
+time.sleep(2)
 
 # UDP Ports
 PORT_PWM = 9002    # Receive RPMs (from Betaflight)
@@ -48,12 +48,19 @@ if pygame.joystick.get_count() > 0:
 else:
     joystick = None
 
+# gamepad_mapping = {
+#     "throttle": {"axis": 1, "invert": True},
+#     "yaw": {"axis": 0, "invert": False},
+#     "roll": {"axis": 2, "invert": False},
+#     "pitch": {"axis": 3, "invert": True},
+#     "arm": {"button": 10, "invert": False},
+# }
 gamepad_mapping = {
     "throttle": {"axis": 1, "invert": True},
     "yaw": {"axis": 0, "invert": False},
-    "roll": {"axis": 2, "invert": False},
-    "pitch": {"axis": 3, "invert": True},
-    "arm": {"button": 10, "invert": False},
+    "roll": {"axis": 3, "invert": False},
+    "pitch": {"axis": 4, "invert": True},
+    "arm": {"button": 5, "invert": False},
 }
 
 betaflight_order = ["roll", "pitch", "throttle", "yaw", "arm"] # AETR
@@ -123,9 +130,9 @@ def make_fdm_packet(state, accelerometer, drone_id=0):
     fmt = '<d3d3d4d3d3dd'
     packet = struct.pack(fmt,
         timestamp,
-        *flu_to_frd(imu_angular_velocity_rpy),
-        *flu_to_frd(accelerometer),
-        *[0, 0, 0, 0],
+        *imu_angular_velocity_rpy,
+        *-flu_to_frd(accelerometer),
+        *flu_to_frd(imu_orientation_quat),
         *[0, 0, 0],
         *[0, 0, 0],
         pressure
@@ -216,7 +223,7 @@ async def main():
 
 
             print(f"RPMs: {rpms} dt: {np.mean(simulation_dts):.4f} s, action: {action[0].tolist()}")
-            # await asyncio.sleep(dts[-1] if hasattr(dts, '__getitem__') else 0.01)
+            # await asyncio.sleep(0.01)
             # test_rc_channels()
 
 if __name__ == "__main__":
