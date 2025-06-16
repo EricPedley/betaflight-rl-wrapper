@@ -7,11 +7,17 @@ import time
 import websockets
 import json
 from scipy.spatial.transform import Rotation as R
+import subprocess
+import os
 
 from copy import copy
 import l2f
 from l2f import vector8 as vector
 from foundation_model import QuadrotorPolicy
+
+
+# subprocess.Popen(["./betaflight/obj/betaflight_4.6.0_SITL"], cwd=os.path.dirname(os.path.abspath(__file__)))
+# time.sleep(2)
 
 # UDP Ports
 PORT_PWM = 9002    # Receive RPMs (from Betaflight)
@@ -52,7 +58,9 @@ gamepad_mapping = {
 
 betaflight_order = ["roll", "pitch", "throttle", "yaw", "arm"] # AETR
 # crazyflie: top-right, bottom-right, bottom-left, top-left
-# betaflight: bottom-right, top-right, bottom-left, top-left, 
+# betaflight: front-left, front-right, rear-right, rear-left
+# betaflight-sitl (uses PX4 mapping): top-right, bottom-left, top-lef, bottom-right,  # https://github.com/betaflight/betaflight/blob/a94083e77d6258bbf9b8b5388a82af9498c923e9/src/platform/SIMULATOR/sitl.c#L602
+# crazyflie_from_betaflight_motors = [1, 0, 2, 3]
 crazyflie_from_betaflight_motors = [1, 0, 2, 3]
 
 initial_axes = None
@@ -117,9 +125,9 @@ def make_fdm_packet(state, accelerometer, drone_id=0):
         timestamp,
         *flu_to_frd(imu_angular_velocity_rpy),
         *flu_to_frd(accelerometer),
-        *flu_to_frd(imu_orientation_quat),
-        *flu_to_frd(velocity_xyz),
-        *flu_to_frd(position_xyz),
+        *[0, 0, 0, 0],
+        *[0, 0, 0],
+        *[0, 0, 0],
         pressure
     )
     return packet
@@ -161,10 +169,14 @@ async def main():
                     policy.reset()
                     vector.initial_state(device, env, params, state)
                 armed = True
+            else:
+                armed = False
 
             try:
                 data = await asyncio.wait_for(udp_recv(loop, udp_pwm_sock), timeout=0.01)
                 rpms = parse_rpm_packet(data)
+                rpms = np.clip(rpms, -1.0, 1.0) / 10
+                assert all(rpms >= 0)
             except asyncio.TimeoutError:
                 rpms = [0.0, 0.0, 0.0, 0.0]
 
