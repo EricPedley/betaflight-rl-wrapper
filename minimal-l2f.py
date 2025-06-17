@@ -48,27 +48,28 @@ if pygame.joystick.get_count() > 0:
 else:
     joystick = None
 
-# gamepad_mapping = {
-#     "throttle": {"axis": 1, "invert": True},
-#     "yaw": {"axis": 0, "invert": False},
-#     "roll": {"axis": 2, "invert": False},
-#     "pitch": {"axis": 3, "invert": True},
-#     "arm": {"button": 10, "invert": False},
-# }
 gamepad_mapping = {
     "throttle": {"axis": 1, "invert": True},
     "yaw": {"axis": 0, "invert": False},
-    "roll": {"axis": 3, "invert": False},
-    "pitch": {"axis": 4, "invert": True},
-    "arm": {"button": 5, "invert": False},
+    "roll": {"axis": 2, "invert": False},
+    "pitch": {"axis": 3, "invert": True},
+    "arm": {"button": 10, "invert": False},
 }
+# gamepad_mapping = {
+#     "throttle": {"axis": 1, "invert": True},
+#     "yaw": {"axis": 0, "invert": False},
+#     "roll": {"axis": 3, "invert": False},
+#     "pitch": {"axis": 4, "invert": True},
+#     "arm": {"button": 5, "invert": False},
+# }
 
 betaflight_order = ["roll", "pitch", "throttle", "yaw", "arm"] # AETR
 # crazyflie: top-right, bottom-right, bottom-left, top-left
 # betaflight: front-left, front-right, rear-right, rear-left
 # betaflight-sitl (uses PX4 mapping): top-right, bottom-left, top-lef, bottom-right,  # https://github.com/betaflight/betaflight/blob/a94083e77d6258bbf9b8b5388a82af9498c923e9/src/platform/SIMULATOR/sitl.c#L602
 # crazyflie_from_betaflight_motors = [1, 0, 2, 3]
-crazyflie_from_betaflight_motors = [1, 0, 2, 3]
+# crazyflie_from_betaflight_motors = [1, 0, 2, 3]
+crazyflie_from_betaflight_motors = [0, 3, 1, 2]
 
 initial_axes = None
 def test_rc_channels():
@@ -126,13 +127,13 @@ def make_fdm_packet(state, accelerometer, drone_id=0):
     imu_orientation_quat = np.asarray(s.orientation, dtype=np.float64)
     velocity_xyz = np.asarray(s.linear_velocity, dtype=np.float64)
     position_xyz = np.asarray(s.position, dtype=np.float64)
-    pressure = 1013.25  # Dummy value for now
+    pressure = 101325  # Dummy value for now
     fmt = '<d3d3d4d3d3dd'
     packet = struct.pack(fmt,
         timestamp,
-        *imu_angular_velocity_rpy,
-        *-flu_to_frd(accelerometer),
-        *flu_to_frd(imu_orientation_quat),
+        *flu_to_frd(imu_angular_velocity_rpy),
+        *-accelerometer,
+        *imu_orientation_quat,
         *[0, 0, 0],
         *[0, 0, 0],
         pressure
@@ -182,7 +183,7 @@ async def main():
             try:
                 data = await asyncio.wait_for(udp_recv(loop, udp_pwm_sock), timeout=0.01)
                 rpms = parse_rpm_packet(data)
-                rpms = np.clip(rpms, -1.0, 1.0) / 10
+                rpms = np.clip(rpms, -1.0, 1.0)
                 assert all(rpms >= 0)
             except asyncio.TimeoutError:
                 rpms = [0.0, 0.0, 0.0, 0.0]
@@ -209,8 +210,14 @@ async def main():
             if armed:
                 state.assign(next_state)
             
+
             state.states[0].position[:] = 0
             state.states[0].linear_velocity[:] = 0
+            # if state.states[0].position[2] <= -0.05:
+            #     state.states[0].position[2] = 0
+            #     state.states[0].linear_velocity[:] = 0
+            #     state.states[0].orientation = [1, 0, 0, 0]
+            #     state.states[0].angular_velocity[:] = 0
 
             ui_state = copy(state)
             for i, s in enumerate(ui_state.states):

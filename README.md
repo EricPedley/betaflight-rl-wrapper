@@ -36,17 +36,13 @@ make
 ./websockify 127.0.0.1:6761 127.0.0.1:5761
 ```
 
+Run `minimal-l2f.py`
+
 - [https://app.betaflight.com](https://app.betaflight.com)
 - Options
 - Enable Manual connection mode
 - Port: `ws://127.0.0.1:6761`
+- Configure Modes: Add arming mode on AUX1 and configure the button for arming in `minimal-l2f.py`
 
 
-4.5
-```
-make arm_sdk_install       
-make configs
-make TARGET=SITL OBJCOPY=/opt/homebrew/opt/llvm/bin/llvm-objcopy
-./obj/betaflight_4.5.3_SITL.hex
-```
 
