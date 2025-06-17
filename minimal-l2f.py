@@ -211,13 +211,13 @@ async def main():
                 state.assign(next_state)
             
 
-            state.states[0].position[:] = 0
-            state.states[0].linear_velocity[:] = 0
-            # if state.states[0].position[2] <= -0.05:
-            #     state.states[0].position[2] = 0
-            #     state.states[0].linear_velocity[:] = 0
-            #     state.states[0].orientation = [1, 0, 0, 0]
-            #     state.states[0].angular_velocity[:] = 0
+            # state.states[0].position[:] = 0
+            # state.states[0].linear_velocity[:] = 0
+            if state.states[0].position[2] <= -0.05:
+                state.states[0].position[2] = 0
+                state.states[0].linear_velocity[:] = 0
+                state.states[0].orientation = [1, 0, 0, 0]
+                state.states[0].angular_velocity[:] = 0
 
             ui_state = copy(state)
             for i, s in enumerate(ui_state.states):
