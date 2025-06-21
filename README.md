@@ -21,19 +21,18 @@ Note: On macOS you might need to increase the memory available to the Docker VM
 
 # SITL
 
+
 ```
+cd betaflight
 make arm_sdk_install       
 make configs
-make TARGET=SITL
+make TARGET=SITL RL_TOOLS_ROOT=../../..
 ./obj/betaflight_4.6.0_SITL
 ```
 
 ```
-cd ~/git
-git clone https://github.com/novnc/websockify-other.git
-cd websockify-other/c
-make
-./websockify 127.0.0.1:6761 127.0.0.1:5761
+pip install sitl
+sitl-websockify 127.0.0.1:6761 127.0.0.1:5761
 ```
 
 Run `minimal-l2f.py`
