@@ -1,0 +1,7 @@
+{
+    "throttle": {"axis": 1, "invert": true},
+    "yaw": {"axis": 0, "invert": false},
+    "roll": {"axis": 3, "invert": false},
+    "pitch": {"axis": 4, "invert": true},
+    "arm": {"button": 5, "invert": false}
+}
