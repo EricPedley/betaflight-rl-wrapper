@@ -68,7 +68,7 @@ bool first_run = true;
 bool active = false;
 
 template <typename T>
-T clip(T x, T max, T min){
+T clip(T x, T min, T max){
 	if(x > max){
 		return max;
 	}
@@ -223,9 +223,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		p[1] = (position[1] - target_position[1]);
 		p[2] = (position[2] - target_position[2]);
 		rotate_vector(Rt_inv, p, pt);
-		observation.position[0] = clip(pt[0], MAX_POSITION_ERROR, -MAX_POSITION_ERROR);
-		observation.position[1] = clip(pt[1], MAX_POSITION_ERROR, -MAX_POSITION_ERROR);
-		observation.position[2] = clip(pt[2], MAX_POSITION_ERROR, -MAX_POSITION_ERROR);
+		observation.position[0] = clip(pt[0], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
+		observation.position[1] = clip(pt[1], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
+		observation.position[2] = clip(pt[2], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
 	}
 	else{
 		observation.position[0] = 0;
@@ -238,9 +238,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		v[1] = (linear_velocity[1] - target_linear_velocity[1]);
 		v[2] = (linear_velocity[2] - target_linear_velocity[2]);
 		rotate_vector(Rt_inv, v, vt);
-		observation.linear_velocity[0] = clip(vt[0], MAX_LINEAR_VELOCITY_ERROR, -MAX_LINEAR_VELOCITY_ERROR);
-		observation.linear_velocity[1] = clip(vt[1], MAX_LINEAR_VELOCITY_ERROR, -MAX_LINEAR_VELOCITY_ERROR);
-		observation.linear_velocity[2] = clip(vt[2], MAX_LINEAR_VELOCITY_ERROR, -MAX_LINEAR_VELOCITY_ERROR);
+		observation.linear_velocity[0] = clip(vt[0], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
+		observation.linear_velocity[1] = clip(vt[1], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
+		observation.linear_velocity[2] = clip(vt[2], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
 	}
 	else{
 		observation.linear_velocity[0] = 0;
@@ -250,9 +250,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	if(mode >= TestObservationMode::ANGULAR_VELOCITY){
         
         constexpr float GYRO_CONVERSION_FACTOR = (T)M_PI / 180.0f;
-		observation.angular_velocity[0] = +gyro.gyroADCf[0] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[1] = -gyro.gyroADCf[1] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[2] = -gyro.gyroADCf[2] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[0] = gyro.gyroADCf[0] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[1] = gyro.gyroADCf[1] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[2] = gyro.gyroADCf[2] * GYRO_CONVERSION_FACTOR;
 	}
 	else{
 		observation.angular_velocity[0] = 0;
@@ -298,20 +298,7 @@ extern "C" void rl_tools_control(void){
     }
     previous_micros = now_narrow;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
-	RLtoolsInferenceApplicationsL2FObservation observation;
-	RLtoolsInferenceApplicationsL2FAction action;
-	observe(observation, TestObservationMode::ACTION_HISTORY);
-	auto executor_status = rl_tools_inference_applications_l2f_control(now, &observation, &action);
 
-    float roll = rcData[0];
-    float pitch = rcData[1];
-    float yaw = rcData[2];
-    float throttle = rcData[3];
-    static constexpr T MANUAL_POSITION_GAIN = 0.3;
-    target_linear_velocity[0] = MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
-    target_linear_velocity[1] = MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
-    target_linear_velocity[2] = MANUAL_POSITION_GAIN * (throttle - 1500) / 500; // throttle
-    printf("Target Linear Velocity: [%f, %f, %f]\n", target_linear_velocity[0], target_linear_velocity[1], target_linear_velocity[2]);
     float aux1 = rcData[4];
     bool next_active = aux1 > 1750;
     if(!active && next_active){
@@ -320,9 +307,40 @@ extern "C" void rl_tools_control(void){
     }
     active = next_active;
 
-    uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
+
+	RLtoolsInferenceApplicationsL2FObservation observation;
+	RLtoolsInferenceApplicationsL2FAction action;
+	observe(observation, TestObservationMode::ACTION_HISTORY);
+	auto executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
+	if(executor_status.step_type == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_STEP_TYPE_NATIVE){
+		if(!executor_status.timing_bias.OK || !executor_status.timing_jitter.OK){
+			printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", executor_status.timing_bias.MAGNITUDE, executor_status.timing_jitter.MAGNITUDE);
+		}
+	}
+	else{
+	}
+    printf("observation: [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] => [%.2f %.2f %.2f %.2f]\n",
+		   observation.position[0], observation.position[1], observation.position[2],
+		   observation.orientation[0], observation.orientation[1], observation.orientation[2], observation.orientation[3],
+		   observation.linear_velocity[0], observation.linear_velocity[1], observation.linear_velocity[2],
+		   observation.angular_velocity[0], observation.angular_velocity[1], observation.angular_velocity[2],
+		   observation.previous_action[0], observation.previous_action[1], observation.previous_action[2], observation.previous_action[3],
+		   action.action[0], action.action[1], action.action[2], action.action[3]
+		);
+
+    float roll = rcData[0];
+    float pitch = rcData[1];
+    float yaw = rcData[2];
+    float throttle = rcData[3];
+    static constexpr T MANUAL_POSITION_GAIN = 0.3;
+    target_linear_velocity[0] = 0; // MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
+    target_linear_velocity[1] = 0; // MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
+    target_linear_velocity[2] = 0; // MANUAL_POSITION_GAIN * (throttle - 1500) / 500; // throttle
+
+    // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
+    uint8_t target_indices[4] = {0, 1, 2, 3};
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
-        previous_action[action_i] = action.action[action_i];
+        previous_action[action_i] = clip(action.action[action_i], (T)-1, (T)1);
         if(active){
             motor[target_indices[action_i]] = action.action[action_i] * 500 + 1500;
         }
