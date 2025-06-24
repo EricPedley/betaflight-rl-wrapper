@@ -282,7 +282,7 @@ extern "C" float rl_tools_test(void){
     float aux1 = rcData[4];
     // printf("AUX1 %f\n", aux1);
     float motor1 = motor[0];
-    printf("Motor1 %f\n", motor1);
+    printf("Motor1 %f\n", (double)motor1);
     return 0;
 }
 
@@ -314,18 +314,18 @@ extern "C" void rl_tools_control(void){
 	auto executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
 	if(executor_status.step_type == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_STEP_TYPE_NATIVE){
 		if(!executor_status.timing_bias.OK || !executor_status.timing_jitter.OK){
-			printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", executor_status.timing_bias.MAGNITUDE, executor_status.timing_jitter.MAGNITUDE);
+			printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
 		}
 	}
 	else{
 	}
     printf("observation: [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] => [%.2f %.2f %.2f %.2f]\n",
-		   observation.position[0], observation.position[1], observation.position[2],
-		   observation.orientation[0], observation.orientation[1], observation.orientation[2], observation.orientation[3],
-		   observation.linear_velocity[0], observation.linear_velocity[1], observation.linear_velocity[2],
-		   observation.angular_velocity[0], observation.angular_velocity[1], observation.angular_velocity[2],
-		   observation.previous_action[0], observation.previous_action[1], observation.previous_action[2], observation.previous_action[3],
-		   action.action[0], action.action[1], action.action[2], action.action[3]
+		   (double)observation.position[0], (double)observation.position[1], (double)observation.position[2],
+		   (double)observation.orientation[0], (double)observation.orientation[1], (double)observation.orientation[2], (double)observation.orientation[3],
+		   (double)observation.linear_velocity[0], (double)observation.linear_velocity[1], (double)observation.linear_velocity[2],
+		   (double)observation.angular_velocity[0], (double)observation.angular_velocity[1], (double)observation.angular_velocity[2],
+		   (double)observation.previous_action[0], (double)observation.previous_action[1], (double)observation.previous_action[2], (double)observation.previous_action[3],
+		   (double)action.action[0], (double)action.action[1], (double)action.action[2], (double)action.action[3]
 		);
 
     float roll = rcData[0];
