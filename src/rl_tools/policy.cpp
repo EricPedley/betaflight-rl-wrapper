@@ -44,10 +44,10 @@ struct RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG{
         return rlt::checkpoint::actor::module;
     }
     static constexpr TI ACTION_HISTORY_LENGTH = 1;
-    static constexpr TI CONTROL_INTERVAL_INTERMEDIATE_NS = 2.5 * 1000 * 1000; // Inference is at 500hz
+    static constexpr TI CONTROL_INTERVAL_INTERMEDIATE_NS = 1 * 1000 * 1000; // Inference is at 500hz
     static constexpr TI CONTROL_INTERVAL_NATIVE_NS = 10 * 1000 * 1000; // Training is 100hz
     static constexpr TI TIMING_STATS_NUM_STEPS = 100;
-    static constexpr bool FORCE_SYNC_INTERMEDIATE = false;
+    static constexpr bool FORCE_SYNC_INTERMEDIATE = true;
     static constexpr TI FORCE_SYNC_NATIVE = 0;
     static constexpr bool DYNAMIC_ALLOCATION = false;
     using WARNING_LEVELS = rlt::inference::executor::WarningLevelsDefault<T>;
@@ -162,13 +162,17 @@ static constexpr T MAX_POSITION_ERROR = 0.3;
 static constexpr T MAX_LINEAR_VELOCITY_ERROR = 0.3;
 
 // setpoint
-static T target_position[3] = {0, 0, 0};
+static T target_position[3] = {0, 0, 0.2};
 static T target_orientation[4] = {1, 0, 0, 0};
 static T target_linear_velocity[3] = {0, 0, 0};
 
 // input
-static T position[3] = {0, 0, 0};
-static T linear_velocity[3] = {0, 0, 0};
+T rl_tools_position[3] = {0, 0, 0};
+T rl_tools_orientation[4] = {1, 0, 0, 0};
+T rl_tools_linear_velocity[3] = {0, 0, 0};
+T rl_tools_angular_velocity[3] = {0, 0, 0};
+
+T rl_tools_rpms[4] = {0, 0, 0, 0};
 
 // state
 static T previous_action[4] = {-1, -1, -1, -1};
@@ -198,10 +202,14 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
         quaternion_t q;
         getQuaternion(&q);
 
-		qr[0] = q.w;
-		qr[1] = q.x;
-		qr[2] = q.y;
-		qr[3] = q.z;
+		// qr[0] = q.w;
+		// qr[1] = q.x;
+		// qr[2] = q.y;
+		// qr[3] = q.z;
+		qr[0] = rl_tools_orientation[0];
+		qr[1] = rl_tools_orientation[1];
+		qr[2] = rl_tools_orientation[2];
+		qr[3] = rl_tools_orientation[3];
 		// qr = qt * qd
 		// qd = qt' * qr
 		quaternion_multiplication(qtc, qr, qd);
@@ -219,9 +227,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	}
 	if(mode >= TestObservationMode::POSITION){
 		T p[3], pt[3]; // FLU
-		p[0] = (position[0] - target_position[0]);
-		p[1] = (position[1] - target_position[1]);
-		p[2] = (position[2] - target_position[2]);
+		p[0] = (rl_tools_position[0] - target_position[0]);
+		p[1] = (rl_tools_position[1] - target_position[1]);
+		p[2] = (rl_tools_position[2] - target_position[2]);
 		rotate_vector(Rt_inv, p, pt);
 		observation.position[0] = clip(pt[0], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
 		observation.position[1] = clip(pt[1], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
@@ -234,9 +242,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	}
 	if(mode >= TestObservationMode::LINEAR_VELOCITY){
 		T v[3], vt[3];
-		v[0] = (linear_velocity[0] - target_linear_velocity[0]);
-		v[1] = (linear_velocity[1] - target_linear_velocity[1]);
-		v[2] = (linear_velocity[2] - target_linear_velocity[2]);
+		v[0] = (rl_tools_linear_velocity[0] - target_linear_velocity[0]);
+		v[1] = (rl_tools_linear_velocity[1] - target_linear_velocity[1]);
+		v[2] = (rl_tools_linear_velocity[2] - target_linear_velocity[2]);
 		rotate_vector(Rt_inv, v, vt);
 		observation.linear_velocity[0] = clip(vt[0], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
 		observation.linear_velocity[1] = clip(vt[1], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
@@ -250,9 +258,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	if(mode >= TestObservationMode::ANGULAR_VELOCITY){
         
         constexpr float GYRO_CONVERSION_FACTOR = (T)M_PI / 180.0f;
-		observation.angular_velocity[0] = gyro.gyroADCf[0] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[1] = gyro.gyroADCf[1] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[2] = gyro.gyroADCf[2] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[0] = rl_tools_angular_velocity[0]; //gyro.gyroSensor1.gyroDev.gyroADCRaw[0] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[1] = rl_tools_angular_velocity[1]; //gyro.gyroSensor1.gyroDev.gyroADCRaw[1] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[2] = rl_tools_angular_velocity[2]; //gyro.gyroSensor1.gyroDev.gyroADCRaw[2] * GYRO_CONVERSION_FACTOR;
 	}
 	else{
 		observation.angular_velocity[0] = 0;
@@ -295,6 +303,8 @@ extern "C" void rl_tools_control(void){
     timeUs_t now_narrow = micros();
     if(previous_micros_set && (now_narrow < previous_micros)){
         micros_overflow_counter++;
+		printf("Micros overflow\n");
+		exit(1);
     }
     previous_micros = now_narrow;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
@@ -308,6 +318,15 @@ extern "C" void rl_tools_control(void){
     active = next_active;
 
 
+    float roll = rcData[0];
+    float pitch = rcData[1];
+    float yaw = rcData[2];
+    float throttle = rcData[3];
+    static constexpr T MANUAL_POSITION_GAIN = 0.3;
+    target_linear_velocity[0] = MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
+    target_linear_velocity[1] = MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
+    target_linear_velocity[2] = MANUAL_POSITION_GAIN * (throttle - 1500) / 500; // throttle
+
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
@@ -318,6 +337,9 @@ extern "C" void rl_tools_control(void){
 		}
 	}
 	else{
+		if(!executor_status.timing_bias.OK || !executor_status.timing_jitter.OK){
+			printf("RLtoolsPolicy: INTERMEDIATE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
+		}
 	}
     printf("observation: [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] => [%.2f %.2f %.2f %.2f]\n",
 		   (double)observation.position[0], (double)observation.position[1], (double)observation.position[2],
@@ -328,21 +350,14 @@ extern "C" void rl_tools_control(void){
 		   (double)action.action[0], (double)action.action[1], (double)action.action[2], (double)action.action[3]
 		);
 
-    float roll = rcData[0];
-    float pitch = rcData[1];
-    float yaw = rcData[2];
-    float throttle = rcData[3];
-    static constexpr T MANUAL_POSITION_GAIN = 0.3;
-    target_linear_velocity[0] = 0; // MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
-    target_linear_velocity[1] = 0; // MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
-    target_linear_velocity[2] = 0; // MANUAL_POSITION_GAIN * (throttle - 1500) / 500; // throttle
-
     // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
     uint8_t target_indices[4] = {0, 1, 2, 3};
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
-        previous_action[action_i] = clip(action.action[action_i], (T)-1, (T)1);
         if(active){
-            motor[target_indices[action_i]] = action.action[action_i] * 500 + 1500;
+			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
+			previous_action[action_i] = clipped_action;
+			rl_tools_rpms[action_i] = clipped_action;
+            motor[target_indices[action_i]] = clipped_action * 500 + 1500;
         }
     }
 }
