@@ -168,9 +168,7 @@ static T target_linear_velocity[3] = {0, 0, 0};
 
 // input
 T rl_tools_position[3] = {0, 0, 0};
-T rl_tools_orientation[4] = {1, 0, 0, 0};
 T rl_tools_linear_velocity[3] = {0, 0, 0};
-T rl_tools_angular_velocity[3] = {0, 0, 0};
 
 T rl_tools_rpms[4] = {0, 0, 0, 0};
 
@@ -202,14 +200,10 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
         quaternion_t q;
         getQuaternion(&q);
 
-		// qr[0] = q.w;
-		// qr[1] = q.x;
-		// qr[2] = q.y;
-		// qr[3] = q.z;
-		qr[0] = rl_tools_orientation[0];
-		qr[1] = rl_tools_orientation[1];
-		qr[2] = rl_tools_orientation[2];
-		qr[3] = rl_tools_orientation[3];
+		qr[0] = q.w;
+		qr[1] = q.x;
+		qr[2] = q.y;
+		qr[3] = q.z;
 		// qr = qt * qd
 		// qd = qt' * qr
 		quaternion_multiplication(qtc, qr, qd);
@@ -258,9 +252,10 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	if(mode >= TestObservationMode::ANGULAR_VELOCITY){
         
         constexpr float GYRO_CONVERSION_FACTOR = (T)M_PI / 180.0f;
-		observation.angular_velocity[0] = rl_tools_angular_velocity[0]; //gyro.gyroSensor1.gyroDev.gyroADCRaw[0] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[1] = rl_tools_angular_velocity[1]; //gyro.gyroSensor1.gyroDev.gyroADCRaw[1] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[2] = rl_tools_angular_velocity[2]; //gyro.gyroSensor1.gyroDev.gyroADCRaw[2] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[0] = gyro.gyroADCf[0] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[1] = gyro.gyroADCf[1] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[2] = gyro.gyroADCf[2] * GYRO_CONVERSION_FACTOR;
+		// printf("Gyro: [%.2f %.2f %.2f] vs [%.2f %.2f %.2f]\n", (double)rl_tools_angular_velocity[0], (double)rl_tools_angular_velocity[1], (double)rl_tools_angular_velocity[2], (double)g[0], (double)g[1], (double)g[2]);
 	}
 	else{
 		observation.angular_velocity[0] = 0;
@@ -322,10 +317,10 @@ extern "C" void rl_tools_control(void){
     float pitch = rcData[1];
     float yaw = rcData[2];
     float throttle = rcData[3];
-    static constexpr T MANUAL_POSITION_GAIN = 0.3;
-    target_linear_velocity[0] = MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
-    target_linear_velocity[1] = MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
-    target_linear_velocity[2] = MANUAL_POSITION_GAIN * (throttle - 1500) / 500; // throttle
+    static constexpr T MANUAL_POSITION_GAIN = 0.5;
+    target_position[0] = MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
+    target_position[1] = -MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
+    target_position[2] = MANUAL_POSITION_GAIN * (throttle - 1500) / 500 + 0.2f; // throttle
 
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
@@ -336,19 +331,14 @@ extern "C" void rl_tools_control(void){
 			printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
 		}
 	}
-	else{
-		if(!executor_status.timing_bias.OK || !executor_status.timing_jitter.OK){
-			printf("RLtoolsPolicy: INTERMEDIATE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
-		}
-	}
-    printf("observation: [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] => [%.2f %.2f %.2f %.2f]\n",
-		   (double)observation.position[0], (double)observation.position[1], (double)observation.position[2],
-		   (double)observation.orientation[0], (double)observation.orientation[1], (double)observation.orientation[2], (double)observation.orientation[3],
-		   (double)observation.linear_velocity[0], (double)observation.linear_velocity[1], (double)observation.linear_velocity[2],
-		   (double)observation.angular_velocity[0], (double)observation.angular_velocity[1], (double)observation.angular_velocity[2],
-		   (double)observation.previous_action[0], (double)observation.previous_action[1], (double)observation.previous_action[2], (double)observation.previous_action[3],
-		   (double)action.action[0], (double)action.action[1], (double)action.action[2], (double)action.action[3]
-		);
+    // printf("observation: [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] => [%.2f %.2f %.2f %.2f]\n",
+	// 	   (double)observation.position[0], (double)observation.position[1], (double)observation.position[2],
+	// 	   (double)observation.orientation[0], (double)observation.orientation[1], (double)observation.orientation[2], (double)observation.orientation[3],
+	// 	   (double)observation.linear_velocity[0], (double)observation.linear_velocity[1], (double)observation.linear_velocity[2],
+	// 	   (double)observation.angular_velocity[0], (double)observation.angular_velocity[1], (double)observation.angular_velocity[2],
+	// 	   (double)observation.previous_action[0], (double)observation.previous_action[1], (double)observation.previous_action[2], (double)observation.previous_action[3],
+	// 	   (double)action.action[0], (double)action.action[1], (double)action.action[2], (double)action.action[3]
+	// 	);
 
     // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
     uint8_t target_indices[4] = {0, 1, 2, 3};
