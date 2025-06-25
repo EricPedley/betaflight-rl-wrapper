@@ -13,10 +13,12 @@ Note: On macOS you might need to increase the memory available to the Docker VM
 
 
 ### Debug
-
+Remove `-flto` from Makefile, otherwise the `.o` will not have concrete sizes
 ```
- arm-none-eabi-nm --print-size --plugin ./tools/gcc-arm-none-eabi-10.3-2021.10/lib/gcc/arm-none-eabi/10.3.1/liblto_plugin.so obj/main/HUMMINGBIRD_F4_V4/src/main/flight/rl_tools_adapter.o
+arm-none-eabi-nm -S obj/main/HUMMINGBIRD_F4_V4/rl_tools/policy.o
 ```
+B/b: `.bss` un-initialized data (B: global/external b: local/"static")
+D/d: `.data` initialized data (D: global/external, d: local/"static")
 
 
 # SITL
@@ -45,3 +47,7 @@ Run `minimal-l2f.py`
 
 
 
+Using Ubuntu 24.04 this works for me:
+```
+rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../.. GCC_REQUIRED_VERSION=13.2.1
+```

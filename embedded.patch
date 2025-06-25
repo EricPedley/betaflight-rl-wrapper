@@ -1,0 +1,103 @@
+diff --git a/Makefile b/Makefile
+index c6d2c6463..e1e60b9e9 100644
+--- a/Makefile
++++ b/Makefile
+@@ -113,7 +113,7 @@ export RM := rm
+ include $(MAKE_SCRIPT_DIR)/$(OSFAMILY).mk
+ 
+ # include the tools makefile
+-include $(MAKE_SCRIPT_DIR)/tools.mk
++# include $(MAKE_SCRIPT_DIR)/tools.mk
+ 
+ # Search path for sources
+ VPATH           := $(SRC_DIR):$(LIB_MAIN_DIR):$(PLATFORM_DIR)
+@@ -178,7 +178,7 @@ DEBUG_FLAGS            = -ggdb2
+ endif
+ OPTIMISATION_BASE     := -flto=auto -fuse-linker-plugin -ffast-math -fmerge-all-constants
+ OPTIMISE_DEFAULT      := -O2
+-OPTIMISE_SPEED        := -Ofast
++OPTIMISE_SPEED        := -O3 -ffast-math
+ OPTIMISE_SIZE         := -Os
+ 
+ LTO_FLAGS             := $(OPTIMISATION_BASE) $(OPTIMISE_SPEED)
+@@ -480,6 +480,8 @@ $(TARGET_HEX): $(TARGET_BIN)
+ 
+ endif
+ 
++include ../oot.mk
++
+ $(TARGET_ELF): $(TARGET_OBJS) $(LD_SCRIPT) $(LD_SCRIPTS)
+ 	@echo "Linking $(TARGET_NAME)" "$(STDOUT)"
+ 	$(V1) $(CROSS_CC) -o $@ $(filter-out %.ld,$^) $(LD_FLAGS)
+diff --git a/mk/local.mk b/mk/local.mk
+new file mode 100644
+index 000000000..8253a2aff
+--- /dev/null
++++ b/mk/local.mk
+@@ -0,0 +1 @@
++INCLUDE_DIRS += $(ROOT_DIR)/../src
+\ No newline at end of file
+diff --git a/mk/local_post.mk b/mk/local_post.mk
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/src/main/flight/mixer.c b/src/main/flight/mixer.c
+index a2d5bc8b9..f14774f11 100644
+--- a/src/main/flight/mixer.c
++++ b/src/main/flight/mixer.c
+@@ -67,6 +67,9 @@
+ 
+ #include "mixer.h"
+ 
++#include "rl_tools/policy.h"
++
++
+ #define DYN_LPF_THROTTLE_STEPS             100
+ #define DYN_LPF_THROTTLE_UPDATE_DELAY_US  5000 // minimum of 5ms between updates
+ 
+@@ -477,6 +480,8 @@ static void applyMixToMotors(const float motorMix[MAX_SUPPORTED_MOTORS], motorMi
+         motor[i] = motorOutput;
+     }
+ 
++    rl_tools_control();
++
+     // Disarmed mode
+     if (!ARMING_FLAG(ARMED)) {
+         for (int i = 0; i < mixerRuntime.motorCount; i++) {
+diff --git a/src/platform/SIMULATOR/sitl.c b/src/platform/SIMULATOR/sitl.c
+index 2fc992cb4..3fef54282 100644
+--- a/src/platform/SIMULATOR/sitl.c
++++ b/src/platform/SIMULATOR/sitl.c
+@@ -70,6 +70,7 @@
+ 
+ #include "dyad.h"
+ #include "udplink.h"
++#include <rl_tools/policy.h>
+ 
+ uint32_t SystemCoreClock;
+ 
+@@ -204,6 +205,14 @@ static void updateState(const fdm_packet* pkt)
+     setVirtualGPS(latitude, longitude, altitude, speed, speed3D, course);
+ #endif
+ 
++    rl_tools_position[0] = pkt->position_xyz[0];
++    rl_tools_position[1] = pkt->position_xyz[1];
++    rl_tools_position[2] = pkt->position_xyz[2];
++
++    rl_tools_linear_velocity[0] = pkt->velocity_xyz[0];
++    rl_tools_linear_velocity[1] = pkt->velocity_xyz[1];
++    rl_tools_linear_velocity[2] = pkt->velocity_xyz[2];
++
+ #if defined(SIMULATOR_IMU_SYNC)
+     imuSetHasNewData(deltaSim*1e6);
+     imuUpdateAttitude(micros());
+@@ -603,6 +612,10 @@ static void pwmCompleteMotorUpdate(void)
+     pwmPkt.motor_speed[0] = motorsPwm[1] / outScale;
+     pwmPkt.motor_speed[1] = motorsPwm[2] / outScale;
+     pwmPkt.motor_speed[2] = motorsPwm[3] / outScale;
++    pwmPkt.motor_speed[0] = rl_tools_rpms[0] / 2 + 0.5f;
++    pwmPkt.motor_speed[1] = rl_tools_rpms[1] / 2 + 0.5f;
++    pwmPkt.motor_speed[2] = rl_tools_rpms[2] / 2 + 0.5f;
++    pwmPkt.motor_speed[3] = rl_tools_rpms[3] / 2 + 0.5f;
+ 
+     // get one "fdm_packet" can only send one "servo_packet"!!
+     if (pthread_mutex_trylock(&updateLock) != 0) return;

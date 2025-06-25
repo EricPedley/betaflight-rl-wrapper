@@ -18,6 +18,9 @@
 #include "drivers/serial.h"
 #endif
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wregister"
+#pragma GCC diagnostic ignored "-Wpedantic"
 extern "C" {
     #include "rx/rx.h"
     #include "flight/mixer.h"
@@ -25,6 +28,8 @@ extern "C" {
     #include "flight/imu.h"
     #include "drivers/time.h"
 }
+#pragma GCC diagnostic pop
+#undef RNG
 
 namespace rlt = rl_tools;
 
@@ -40,8 +45,8 @@ struct RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG{
     static constexpr TI TEST_SEQUENCE_LENGTH_ACTUAL = 5;
     static constexpr TI TEST_BATCH_SIZE_ACTUAL = 2;
     using ACTOR_TYPE_ORIGINAL = rlt::checkpoint::actor::TYPE;
-    using POLICY_TEST = rlt::checkpoint::actor::TYPE::template CHANGE_BATCH_SIZE<TI, 1>::template CHANGE_SEQUENCE_LENGTH<TI, 1>;
-    using POLICY = ACTOR_TYPE_ORIGINAL::template CHANGE_BATCH_SIZE<TI, 1>;
+    using POLICY = rlt::checkpoint::actor::TYPE::template CHANGE_BATCH_SIZE<TI, 1>::template CHANGE_SEQUENCE_LENGTH<TI, 1>;
+	using POLICY_TEST = POLICY;
     using T = typename POLICY::SPEC::T;
     static auto& policy() {
         return rlt::checkpoint::actor::module;
@@ -58,6 +63,8 @@ struct RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG{
 
 // #define RL_TOOLS_DISABLE_TEST
 #include <rl_tools/inference/applications/l2f/c_backend.h>
+
+static_assert(sizeof(rl_tools::inference::applications::l2f::executor.executor.policy_buffer) < 10000);
 
 
 using T = RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG::T;
@@ -200,7 +207,7 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		quaternion_conjugate(qt, qtc);
 		quaternion_to_rotation_matrix(qtc, Rt_inv);
 
-        quaternion_t q;
+        quaternion q;
         getQuaternion(&q);
 
 		qr[0] = q.w;
