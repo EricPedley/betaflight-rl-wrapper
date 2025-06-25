@@ -9,9 +9,3 @@ TARGET_OBJS += $(addsuffix .o,$(addprefix $(TARGET_OBJ_DIR)/,$(basename $(CXX_SR
 $(TARGET_OBJ_DIR)/%.o: $(EXTERNAL_SRC_DIR)/%.cpp
 	$(V1) mkdir -p $(dir $@)
 	$(V1) $(CROSS_CXX) -c -o $@ $(CXXFLAGS) $(CC_DEFAULT_OPTIMISATION) $<
-
-# Same as in Makefile but using CROSS_CXX instead
-$(TARGET_ELF): $(TARGET_OBJS) $(LD_SCRIPT) $(LD_SCRIPTS)
-	@echo "Linking $(TARGET_NAME)" "$(STDOUT)"
-	$(V1) $(CROSS_CC) -o $@ $(filter-out %.ld,$^) $(LD_FLAGS)
-	$(V1) $(SIZE) $(TARGET_ELF)
