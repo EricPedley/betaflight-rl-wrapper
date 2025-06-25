@@ -27,9 +27,9 @@ extern "C" {
     #include "sensors/gyro.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
+	#undef RNG
 }
 #pragma GCC diagnostic pop
-#undef RNG
 
 namespace rlt = rl_tools;
 
@@ -207,7 +207,11 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		quaternion_conjugate(qt, qtc);
 		quaternion_to_rotation_matrix(qtc, Rt_inv);
 
+		#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
         quaternion q;
+		#else
+        quaternion_t q;
+		#endif
         getQuaternion(&q);
 
 		qr[0] = q.w;

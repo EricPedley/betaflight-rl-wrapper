@@ -5,7 +5,7 @@
 ```
 make arm_sdk_install
 make configs
-make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_PATH=$(pwd)/../../../
+make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_PATH=$(pwd)/../../../..
 ```
 
 Note: On macOS you might need to increase the memory available to the Docker VM
@@ -25,10 +25,10 @@ D/d: `.data` initialized data (D: global/external, d: local/"static")
 
 
 ```
-cd betaflight
+cd firmware/TARGET
 make arm_sdk_install       
 make configs
-make TARGET=SITL RL_TOOLS_ROOT=../../..
+make TARGET=SITL RL_TOOLS_ROOT=../../../..
 ./obj/betaflight_4.6.0_SITL
 ```
 
@@ -49,5 +49,5 @@ Run `minimal-l2f.py`
 
 Using Ubuntu 24.04 this works for me:
 ```
-rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../.. GCC_REQUIRED_VERSION=13.2.1
+rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```

@@ -1,6 +1,9 @@
-[submodule "betaflight"]
-	path = betaflight
-	url = https://github.com/rl-tools/betaflight-firmware.git
 [submodule "src/rl_tools/blob"]
 	path = src/rl_tools/blob
 	url = https://github.com/rl-tools/px4-blob
+[submodule "firmware/HUMMINGBIRD_F4_V4"]
+	path = firmware/HUMMINGBIRD_F4_V4
+	url = https://github.com/rl-tools/betaflight-firmware
+[submodule "firmware/SITL"]
+	path = firmware/SITL
+	url = https://github.com/rl-tools/betaflight-firmware
