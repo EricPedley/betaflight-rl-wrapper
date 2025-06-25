@@ -14,6 +14,9 @@
 #include <rl_tools/inference/executor/executor.h>
 
 #include "blob/policy.h"
+#ifdef RL_TOOLS_SERIAL
+#include "drivers/serial.h"
+#endif
 
 extern "C" {
     #include "rx/rx.h"
@@ -350,4 +353,13 @@ extern "C" void rl_tools_control(void){
             motor[target_indices[action_i]] = clipped_action * 500 + 1500;
         }
     }
+	#ifdef RL_TOOLS_SERIAL
+		serialPort_t *uart1 = serialFindPort(SERIAL_PORT_UART1);
+		if (uart1) {
+			const char *txt = "Debugging on TX1\n";
+			for (const char *c = txt; *c; c++) {
+				serialWrite(uart1, *c);
+			}
+		}
+	#endif
 }
