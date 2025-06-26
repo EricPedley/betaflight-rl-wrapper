@@ -196,6 +196,12 @@ bool native_statii_full = false;
 TI native_statii_index = 0;
 
 
+static constexpr TI NUM_RL_TOOLS_CONTROL_INVOCATION_DTS = 100;
+timeUs_t rl_tools_control_invocation_dts[NUM_RL_TOOLS_CONTROL_INVOCATION_DTS];
+TI rl_tools_control_invocation_dts_index = 0;
+bool rl_tools_control_invocation_dts_full = false;
+
+
 // state
 static T previous_action[4] = {-1, -1, -1, -1};
 
@@ -324,12 +330,20 @@ extern "C" void rl_tools_control(void){
         rl_tools_inference_applications_l2f_init();
     }
     timeUs_t now_narrow = micros();
-    if(previous_micros_set && (now_narrow < previous_micros)){
-        micros_overflow_counter++;
-		printf("Micros overflow\n");
-		exit(1);
-    }
+    if(previous_micros_set){
+		if(now_narrow < previous_micros){
+			micros_overflow_counter++;
+		}
+		auto diff = now_narrow - previous_micros;
+		rl_tools_control_invocation_dts[rl_tools_control_invocation_dts_index] = diff;
+		rl_tools_control_invocation_dts_index++;
+		if(rl_tools_control_invocation_dts_index >= NUM_RL_TOOLS_CONTROL_INVOCATION_DTS){
+			rl_tools_control_invocation_dts_index = 0;
+			rl_tools_control_invocation_dts_full = true;
+		}
+	} 
     previous_micros = now_narrow;
+	previous_micros_set = true;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
 
     float aux1 = rcData[4];
@@ -442,6 +456,20 @@ extern "C" void rl_tools_control(void){
 			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
 				printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
 			}
+		}
+		if(rl_tools_control_invocation_dts_full){
+			T rl_tools_control_invocation_dt_mean = 0;
+			T rl_tools_control_invocation_dt_std = 0;
+			for(TI i = 0; i < NUM_RL_TOOLS_CONTROL_INVOCATION_DTS; i++){
+				auto dt = rl_tools_control_invocation_dts[i];
+				rl_tools_control_invocation_dt_mean += dt;
+				rl_tools_control_invocation_dt_std += dt * dt;
+			}
+			rl_tools_control_invocation_dt_mean /= NUM_RL_TOOLS_CONTROL_INVOCATION_DTS;
+			rl_tools_control_invocation_dt_std /= NUM_RL_TOOLS_CONTROL_INVOCATION_DTS;
+			rl_tools_control_invocation_dt_std -= rl_tools_control_invocation_dt_mean * rl_tools_control_invocation_dt_mean;
+			rl_tools_control_invocation_dt_std = sqrt(rl_tools_control_invocation_dt_std);
+			cliPrintLinef("RLtoolsPolicy: Control invocation dt mean: %.2f us, std: %.2f us", (double)rl_tools_control_invocation_dt_mean, (double)rl_tools_control_invocation_dt_std);
 		}
 	}
 }
