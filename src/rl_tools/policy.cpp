@@ -14,19 +14,21 @@
 #include <rl_tools/inference/executor/executor.h>
 
 #include "blob/policy.h"
-#ifdef RL_TOOLS_SERIAL
-#include "drivers/serial.h"
-#endif
+#define RL_TOOLS_SERIAL
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wregister"
 #pragma GCC diagnostic ignored "-Wpedantic"
 extern "C" {
     #include "rx/rx.h"
+    #include "cli/cli_debug_print.h"
     #include "flight/mixer.h"
     #include "sensors/gyro.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
+	#ifdef RL_TOOLS_SERIAL
+	#include "drivers/serial.h"
+	#endif
 	#undef RNG
 }
 #pragma GCC diagnostic pop
@@ -73,6 +75,13 @@ using TI = RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG::TI;
 uint64_t previous_micros = 0;
 bool previous_micros_set = false;
 uint32_t micros_overflow_counter = 0;
+
+timeUs_t previous_rl_tools_tick = 0;
+bool previous_rl_tools_tick_set = false;
+uint32_t rl_tools_tick = 0;
+timeUs_t previous_timing = 0;
+bool previous_timing_set = false;
+
 
 bool first_run = true;
 bool active = false;
@@ -364,13 +373,46 @@ extern "C" void rl_tools_control(void){
             motor[target_indices[action_i]] = clipped_action * 500 + 1500;
         }
     }
+	bool tick_now = false;
+	if(previous_rl_tools_tick_set){
+		if((now - previous_rl_tools_tick >= 1000)){
+			rl_tools_tick++;
+			previous_rl_tools_tick = now;
+			tick_now = true;
+		}
+	}
+	else{
+		rl_tools_tick = 0;
+		previous_rl_tools_tick_set = true;
+		previous_rl_tools_tick = now;
+		tick_now = true;
+	}
 	#ifdef RL_TOOLS_SERIAL
-		serialPort_t *uart1 = serialFindPort(SERIAL_PORT_UART1);
-		if (uart1) {
-			const char *txt = "Debugging on TX1\n";
-			for (const char *c = txt; *c; c++) {
-				serialWrite(uart1, *c);
+	    if(tick_now && rl_tools_tick % 1000 == 0){
+			// #ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
+			// serialPort_t *uart1 = serialOpen(UART1, 115200, MODE_TX, SERIAL_NOT_INVERTED);
+			// #else
+			// serialPort_t *uart1 = serialFindPort(SERIAL_PORT_UART1);
+			// #endif
+			// if (uart1) {
+			// 	const char *txt = "Debugging on TX1\n";
+			// 	for (const char *c = txt; *c; c++) {
+			// 		serialWrite(uart1, *c);
+			// 	}
+			// }
+			auto cycle_count = DWT->CYCCNT;
+
+			timeUs_t now = micros();
+			cliPrintLinef("Test from RLT");
+			cliPrintLinef("SystemCoreClock  = %lu", SystemCoreClock);
+			cliPrintLinef("RCC->CFGR        = 0x%08lx", RCC->CFGR);
+			cliPrintLinef("FLASH->ACR       = 0x%08lx", FLASH->ACR);
+			cliPrintLinef("DWT->CYCCNT      = %lu", cycle_count);
+			if(previous_timing_set){
+				cliPrintLinef("Timing: %lu us", (now - previous_timing));
 			}
+			previous_timing = micros();
+			previous_timing_set = true;
 		}
 	#endif
 }
