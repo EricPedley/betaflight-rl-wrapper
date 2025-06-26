@@ -14,7 +14,6 @@
 #include <rl_tools/inference/executor/executor.h>
 
 #include "blob/policy.h"
-#define RL_TOOLS_SERIAL
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wregister"
@@ -26,9 +25,6 @@ extern "C" {
     #include "sensors/gyro.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
-	#ifdef RL_TOOLS_SERIAL
-	#include "drivers/serial.h"
-	#endif
 	#undef RNG
 }
 #pragma GCC diagnostic pop
@@ -191,6 +187,15 @@ T rl_tools_linear_velocity[3] = {0, 0, 0};
 
 T rl_tools_rpms[4] = {0, 0, 0, 0};
 
+static constexpr TI NUM_EXECUTOR_STATII = 100;
+RLtoolsInferenceExecutorStatus intermediate_statii[NUM_EXECUTOR_STATII];
+bool intermediate_statii_full = false;
+TI intermediate_statii_index = 0;
+RLtoolsInferenceExecutorStatus native_statii[NUM_EXECUTOR_STATII];
+bool native_statii_full = false;
+TI native_statii_index = 0;
+
+
 // state
 static T previous_action[4] = {-1, -1, -1, -1};
 
@@ -348,12 +353,25 @@ extern "C" void rl_tools_control(void){
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
-	auto executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
+	timeUs_t pre_inference = micros();
+	RLtoolsInferenceExecutorStatus executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
 	if(executor_status.step_type == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_STEP_TYPE_NATIVE){
-		if(!executor_status.timing_bias.OK || !executor_status.timing_jitter.OK){
-			printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
+		native_statii[native_statii_index] = executor_status;
+		native_statii_index++;
+		if(native_statii_index >= NUM_EXECUTOR_STATII){
+			native_statii_index = 0;
+			native_statii_full = true;
 		}
 	}
+	else{
+		intermediate_statii[intermediate_statii_index] = executor_status;
+		intermediate_statii_index++;
+		if(intermediate_statii_index >= NUM_EXECUTOR_STATII){
+			intermediate_statii_index = 0;
+			intermediate_statii_full = true;
+		}
+	}
+	auto inference_time = micros() - pre_inference;
     // printf("observation: [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] => [%.2f %.2f %.2f %.2f]\n",
 	// 	   (double)observation.position[0], (double)observation.position[1], (double)observation.position[2],
 	// 	   (double)observation.orientation[0], (double)observation.orientation[1], (double)observation.orientation[2], (double)observation.orientation[3],
@@ -387,32 +405,43 @@ extern "C" void rl_tools_control(void){
 		previous_rl_tools_tick = now;
 		tick_now = true;
 	}
-	#ifdef RL_TOOLS_SERIAL
-	    if(tick_now && rl_tools_tick % 1000 == 0){
-			// #ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
-			// serialPort_t *uart1 = serialOpen(UART1, 115200, MODE_TX, SERIAL_NOT_INVERTED);
-			// #else
-			// serialPort_t *uart1 = serialFindPort(SERIAL_PORT_UART1);
-			// #endif
-			// if (uart1) {
-			// 	const char *txt = "Debugging on TX1\n";
-			// 	for (const char *c = txt; *c; c++) {
-			// 		serialWrite(uart1, *c);
-			// 	}
-			// }
-			auto cycle_count = DWT->CYCCNT;
-
-			timeUs_t now = micros();
-			cliPrintLinef("Test from RLT");
-			cliPrintLinef("SystemCoreClock  = %lu", SystemCoreClock);
-			cliPrintLinef("RCC->CFGR        = 0x%08lx", RCC->CFGR);
-			cliPrintLinef("FLASH->ACR       = 0x%08lx", FLASH->ACR);
-			cliPrintLinef("DWT->CYCCNT      = %lu", cycle_count);
-			if(previous_timing_set){
-				cliPrintLinef("Timing: %lu us", (now - previous_timing));
+	if(tick_now && rl_tools_tick % 1000 == 0){
+		cliPrintLinef("Inference time: %lu us", inference_time);
+		if(intermediate_statii_full){
+			TI num_healthy_statii = 0;
+			bool latest_non_healthy_set = false;
+			RLtoolsInferenceExecutorStatus latest_non_healthy;
+			for(TI i = 0; i < NUM_EXECUTOR_STATII; i++){
+				TI index = (intermediate_statii_index + i) % NUM_EXECUTOR_STATII;
+				auto status = intermediate_statii[i];
+				num_healthy_statii += status.OK;
+				if(!status.OK){
+					latest_non_healthy_set = true;
+					latest_non_healthy = status;
+				}
 			}
-			previous_timing = micros();
-			previous_timing_set = true;
+			cliPrintLinef("RLtoolsPolicy: INTERMEDIATE: %d/%d healthy status", num_healthy_statii, NUM_EXECUTOR_STATII);
+			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
+				printf("RLtoolsPolicy: INTERMEDIATE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
+			}
 		}
-	#endif
+		if(native_statii_full){
+			TI num_healthy_statii = 0;
+			bool latest_non_healthy_set = false;
+			RLtoolsInferenceExecutorStatus latest_non_healthy;
+			for(TI i = 0; i < NUM_EXECUTOR_STATII; i++){
+				TI index = (native_statii_index + i) % NUM_EXECUTOR_STATII;
+				auto status = native_statii[i];
+				num_healthy_statii += status.OK;
+				if(!status.OK){
+					latest_non_healthy_set = true;
+					latest_non_healthy = status;
+				}
+			}
+			cliPrintLinef("RLtoolsPolicy: NATIVE: %d/%d healthy status", num_healthy_statii, NUM_EXECUTOR_STATII);
+			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
+				printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
+			}
+		}
+	}
 }
