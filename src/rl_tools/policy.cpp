@@ -50,7 +50,7 @@ struct RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG{
         return rlt::checkpoint::actor::module;
     }
     static constexpr TI ACTION_HISTORY_LENGTH = 1;
-    static constexpr TI CONTROL_INTERVAL_INTERMEDIATE_NS = 1 * 1000 * 1000; // Inference is at 500hz
+    static constexpr TI CONTROL_INTERVAL_INTERMEDIATE_NS = 0.5 * 1000 * 1000; // Adjust based on the Control invocation dt statistics
     static constexpr TI CONTROL_INTERVAL_NATIVE_NS = 10 * 1000 * 1000; // Training is 100hz
     static constexpr TI TIMING_STATS_NUM_STEPS = 100;
     static constexpr bool FORCE_SYNC_INTERMEDIATE = true;
@@ -308,19 +308,13 @@ void reset(){
 }
 
 
-extern "C" float rl_tools_test(void){
-	// RLtoolsInferenceApplicationsL2FAction action;
-	// float abs_diff = rl_tools_inference_applications_l2f_test(&action);
-	// printf("Checkpoint test diff: %f\n", abs_diff);
-	// for(TI output_i = 0; output_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; output_i++){
-	// 	printf("output[%d]: %f\n", output_i, action.action[output_i]);
-	// }
-    // return abs_diff;
-    float aux1 = rcData[4];
-    // printf("AUX1 %f\n", aux1);
-    float motor1 = motor[0];
-    printf("Motor1 %f\n", (double)motor1);
-    return 0;
+extern "C" void rl_tools_status(void){
+	RLtoolsInferenceApplicationsL2FAction action;
+	float abs_diff = rl_tools_inference_applications_l2f_test(&action);
+	for(TI output_i = 0; output_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; output_i++){
+		cliPrintLinef("RLtools: output[%d]: %f\n", output_i, (double)action.action[output_i]);
+	}
+	cliPrintLinef("RLtools: checkpoint test diff: %f\n", (double)abs_diff);
 }
 
 extern "C" void rl_tools_control(void){
@@ -469,7 +463,7 @@ extern "C" void rl_tools_control(void){
 			rl_tools_control_invocation_dt_std /= NUM_RL_TOOLS_CONTROL_INVOCATION_DTS;
 			rl_tools_control_invocation_dt_std -= rl_tools_control_invocation_dt_mean * rl_tools_control_invocation_dt_mean;
 			rl_tools_control_invocation_dt_std = sqrt(rl_tools_control_invocation_dt_std);
-			cliPrintLinef("RLtoolsPolicy: Control invocation dt mean: %.2f us, std: %.2f us", (double)rl_tools_control_invocation_dt_mean, (double)rl_tools_control_invocation_dt_std);
+			cliPrintLinef("RLtoolsPolicy: Control invocation dt mean: %lu us, std: %lu us", (unsigned long)rl_tools_control_invocation_dt_mean, (unsigned long)rl_tools_control_invocation_dt_std);
 		}
 	}
 }
