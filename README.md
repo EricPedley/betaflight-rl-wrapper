@@ -52,3 +52,15 @@ Using Ubuntu 24.04 this works for me:
 cd firmware/HUMMINGBIRD_F4_V4
 rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```
+
+
+
+### Saving Flash Space
+
+```
+#undef USE_TELEMETRY_XXX ~ 15kB savings
+```
+
+```
+#undef USE_VTX ~ 25kB savings
+```

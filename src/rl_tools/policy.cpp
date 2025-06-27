@@ -311,10 +311,11 @@ void reset(){
 extern "C" void rl_tools_status(void){
 	RLtoolsInferenceApplicationsL2FAction action;
 	float abs_diff = rl_tools_inference_applications_l2f_test(&action);
+	static constexpr int FACTOR = 1000;
 	for(TI output_i = 0; output_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; output_i++){
-		cliPrintLinef("RLtools: output[%d]: %f\n", output_i, (double)action.action[output_i]);
+		cliPrintLinef("RLtools: output[%d]: %d / %d\n", output_i, (int)action.action[output_i], FACTOR);
 	}
-	cliPrintLinef("RLtools: checkpoint test diff: %f\n", (double)abs_diff);
+	cliPrintLinef("RLtools: checkpoint test diff: %d / %d\n", (int)abs_diff, FACTOR);
 }
 
 extern "C" void rl_tools_control(void){
@@ -363,20 +364,22 @@ extern "C" void rl_tools_control(void){
 	observe(observation, TestObservationMode::ACTION_HISTORY);
 	timeUs_t pre_inference = micros();
 	RLtoolsInferenceExecutorStatus executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
-	if(executor_status.step_type == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_STEP_TYPE_NATIVE){
-		native_statii[native_statii_index] = executor_status;
-		native_statii_index++;
-		if(native_statii_index >= NUM_EXECUTOR_STATII){
-			native_statii_index = 0;
-			native_statii_full = true;
+	if(executor_status.source == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_SOURCE_CONTROL){
+		if(executor_status.step_type == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_STEP_TYPE_NATIVE){
+			native_statii[native_statii_index] = executor_status;
+			native_statii_index++;
+			if(native_statii_index >= NUM_EXECUTOR_STATII){
+				native_statii_index = 0;
+				native_statii_full = true;
+			}
 		}
-	}
-	else{
-		intermediate_statii[intermediate_statii_index] = executor_status;
-		intermediate_statii_index++;
-		if(intermediate_statii_index >= NUM_EXECUTOR_STATII){
-			intermediate_statii_index = 0;
-			intermediate_statii_full = true;
+		else{
+			intermediate_statii[intermediate_statii_index] = executor_status;
+			intermediate_statii_index++;
+			if(intermediate_statii_index >= NUM_EXECUTOR_STATII){
+				intermediate_statii_index = 0;
+				intermediate_statii_full = true;
+			}
 		}
 	}
 	auto inference_time = micros() - pre_inference;
@@ -430,7 +433,7 @@ extern "C" void rl_tools_control(void){
 			}
 			cliPrintLinef("RLtoolsPolicy: INTERMEDIATE: %d/%d healthy status", num_healthy_statii, NUM_EXECUTOR_STATII);
 			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
-				printf("RLtoolsPolicy: INTERMEDIATE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
+				printf("RLtoolsPolicy: INTERMEDIATE: BIAS %fx JITTER %fx\n", (double)latest_non_healthy.timing_bias.MAGNITUDE, (double)latest_non_healthy.timing_jitter.MAGNITUDE);
 			}
 		}
 		if(native_statii_full){
@@ -448,7 +451,7 @@ extern "C" void rl_tools_control(void){
 			}
 			cliPrintLinef("RLtoolsPolicy: NATIVE: %d/%d healthy status", num_healthy_statii, NUM_EXECUTOR_STATII);
 			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
-				printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)executor_status.timing_bias.MAGNITUDE, (double)executor_status.timing_jitter.MAGNITUDE);
+				printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)latest_non_healthy.timing_bias.MAGNITUDE, (double)latest_non_healthy.timing_jitter.MAGNITUDE);
 			}
 		}
 		if(rl_tools_control_invocation_dts_full){
