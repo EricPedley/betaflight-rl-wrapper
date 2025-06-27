@@ -3,7 +3,7 @@
 extern "C" {
 #endif
     void rl_tools_status(void);
-    void rl_tools_control(void);
+    void rl_tools_control(bool);
     extern float rl_tools_position[3];
     extern float rl_tools_linear_velocity[3];
     extern float rl_tools_rpms[4];

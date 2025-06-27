@@ -319,7 +319,7 @@ extern "C" void rl_tools_status(void){
 	cliPrintLinef("RLtools: checkpoint test diff: %d / %d", (int)(abs_diff*PRINTF_FACTOR), PRINTF_FACTOR);
 }
 
-extern "C" void rl_tools_control(void){
+extern "C" void rl_tools_control(bool armed){
     if(first_run){
         first_run = false;
         cliPrintLinef("RLtools Inference Applications L2F Control started");
@@ -342,11 +342,11 @@ extern "C" void rl_tools_control(void){
 	previous_micros_set = true;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
 
-    float aux1 = rcData[4];
-    bool next_active = aux1 > 1750;
+    float aux2 = rcData[5];
+    bool next_active = armed && (aux2 > 1750);
     if(!active && next_active){
         reset();
-        printf("Resetting Inference Executor (Recurrent State)\n");
+        cliPrintLinef("Resetting Inference Executor (Recurrent State)\n");
     }
     active = next_active;
 
