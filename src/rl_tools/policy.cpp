@@ -67,6 +67,7 @@ static_assert(sizeof(rl_tools::inference::applications::l2f::executor.executor.p
 
 using T = RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG::T;
 using TI = RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG::TI;
+static constexpr int PRINTF_FACTOR = 1000;
 
 uint64_t previous_micros = 0;
 bool previous_micros_set = false;
@@ -310,18 +311,18 @@ void reset(){
 
 extern "C" void rl_tools_status(void){
 	RLtoolsInferenceApplicationsL2FAction action;
+	cliPrintLinef("RLtools: checkpoint: %s", rl_tools_inference_applications_l2f_checkpoint_name());
 	float abs_diff = rl_tools_inference_applications_l2f_test(&action);
-	static constexpr int FACTOR = 1000;
 	for(TI output_i = 0; output_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; output_i++){
-		cliPrintLinef("RLtools: output[%d]: %d / %d\n", output_i, (int)action.action[output_i], FACTOR);
+		cliPrintLinef("RLtools: output[%d]: %d / %d", output_i, (int)(action.action[output_i]*PRINTF_FACTOR), PRINTF_FACTOR);
 	}
-	cliPrintLinef("RLtools: checkpoint test diff: %d / %d\n", (int)abs_diff, FACTOR);
+	cliPrintLinef("RLtools: checkpoint test diff: %d / %d", (int)(abs_diff*PRINTF_FACTOR), PRINTF_FACTOR);
 }
 
 extern "C" void rl_tools_control(void){
     if(first_run){
         first_run = false;
-        printf("RLtools Inference Applications L2F Control started\n");
+        cliPrintLinef("RLtools Inference Applications L2F Control started");
         rl_tools_inference_applications_l2f_init();
     }
     timeUs_t now_narrow = micros();
@@ -433,7 +434,7 @@ extern "C" void rl_tools_control(void){
 			}
 			cliPrintLinef("RLtoolsPolicy: INTERMEDIATE: %d/%d healthy status", num_healthy_statii, NUM_EXECUTOR_STATII);
 			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
-				printf("RLtoolsPolicy: INTERMEDIATE: BIAS %fx JITTER %fx\n", (double)latest_non_healthy.timing_bias.MAGNITUDE, (double)latest_non_healthy.timing_jitter.MAGNITUDE);
+				cliPrintLinef("RLtoolsPolicy: INTERMEDIATE: BIAS %d/%dx JITTER %d/%dx", (int)(latest_non_healthy.timing_bias.MAGNITUDE * PRINTF_FACTOR), PRINTF_FACTOR, (int)(latest_non_healthy.timing_jitter.MAGNITUDE * PRINTF_FACTOR), PRINTF_FACTOR);
 			}
 		}
 		if(native_statii_full){
@@ -451,7 +452,7 @@ extern "C" void rl_tools_control(void){
 			}
 			cliPrintLinef("RLtoolsPolicy: NATIVE: %d/%d healthy status", num_healthy_statii, NUM_EXECUTOR_STATII);
 			if(latest_non_healthy_set && (!latest_non_healthy.timing_bias.OK || !latest_non_healthy.timing_jitter.OK)){
-				printf("RLtoolsPolicy: NATIVE: BIAS %fx JITTER %fx\n", (double)latest_non_healthy.timing_bias.MAGNITUDE, (double)latest_non_healthy.timing_jitter.MAGNITUDE);
+				cliPrintLinef("RLtoolsPolicy: NATIVE: BIAS %d/%dx JITTER %d/%dx", (int)(latest_non_healthy.timing_bias.MAGNITUDE * PRINTF_FACTOR), PRINTF_FACTOR, (int)(latest_non_healthy.timing_jitter.MAGNITUDE * PRINTF_FACTOR), PRINTF_FACTOR);
 			}
 		}
 		if(rl_tools_control_invocation_dts_full){
