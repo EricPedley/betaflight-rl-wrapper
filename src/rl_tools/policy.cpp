@@ -346,7 +346,7 @@ extern "C" void rl_tools_control(bool armed){
     bool next_active = armed && (aux2 > 1750);
     if(!active && next_active){
         reset();
-        cliPrintLinef("Resetting Inference Executor (Recurrent State)\n");
+        cliPrintLinef("Resetting Inference Executor (Recurrent State) %d %d", armed ? 1 : 0, (int)aux2);
     }
     active = next_active;
 
@@ -393,8 +393,8 @@ extern "C" void rl_tools_control(bool armed){
 	// 	   (double)action.action[0], (double)action.action[1], (double)action.action[2], (double)action.action[3]
 	// 	);
 
-    // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
-    uint8_t target_indices[4] = {0, 1, 2, 3};
+    uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
+    // uint8_t target_indices[4] = {0, 1, 2, 3};
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
         if(active){
 			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
