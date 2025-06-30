@@ -196,6 +196,9 @@ RLtoolsInferenceExecutorStatus native_statii[NUM_EXECUTOR_STATII];
 bool native_statii_full = false;
 TI native_statii_index = 0;
 
+T prev_rc_0 = 0;
+bool prev_rc_0_set = false;
+
 
 static constexpr TI NUM_RL_TOOLS_CONTROL_INVOCATION_DTS = 100;
 timeUs_t rl_tools_control_invocation_dts[NUM_RL_TOOLS_CONTROL_INVOCATION_DTS];
@@ -350,15 +353,24 @@ extern "C" void rl_tools_control(bool armed){
     }
     active = next_active;
 
+	float rc_0 = rcData[4];
+	if(prev_rc_0_set){
+		if(prev_rc_0 != rc_0){
+			cliPrintLinef("RC 0 changed from %d/%d to %d/%d", (int)(prev_rc_0*PRINTF_FACTOR), PRINTF_FACTOR, (int)(rc_0*PRINTF_FACTOR), PRINTF_FACTOR);
+		}
+	}
+	prev_rc_0 = rc_0;
+	prev_rc_0_set = true;
 
-    float roll = rcData[0];
-    float pitch = rcData[1];
-    float yaw = rcData[2];
-    float throttle = rcData[3];
-    static constexpr T MANUAL_POSITION_GAIN = 0.5;
-    target_position[0] = MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
-    target_position[1] = -MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
-    target_position[2] = MANUAL_POSITION_GAIN * (throttle - 1500) / 500 + 0.2f; // throttle
+
+    // float roll = rcData[0];
+    // float pitch = rcData[1];
+    // float yaw = rcData[2];
+    // float throttle = rcData[3];
+    // static constexpr T MANUAL_POSITION_GAIN = 0.5;
+    // target_position[0] = MANUAL_POSITION_GAIN * (pitch - 1500) / 500; // pitch
+    // target_position[1] = -MANUAL_POSITION_GAIN * (roll - 1500) / 500; // roll
+    // target_position[2] = MANUAL_POSITION_GAIN * (throttle - 1500) / 500 + 0.2f; // throttle
 
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
