@@ -20,7 +20,9 @@
 #pragma GCC diagnostic ignored "-Wpedantic"
 extern "C" {
     #include "rx/rx.h"
+#ifdef USE_CLI_DEBUG_PRINT
     #include "cli/cli_debug_print.h"
+#endif
     #include "flight/mixer.h"
     #include "sensors/gyro.h"
     #include "flight/imu.h"
@@ -82,6 +84,10 @@ bool previous_timing_set = false;
 
 bool first_run = true;
 bool active = false;
+
+#ifndef USE_CLI_DEBUG_PRINT
+void cliPrintLinef(const char *format, ...){/*noop*/}
+#endif
 
 template <typename T>
 T clip(T x, T min, T max){
