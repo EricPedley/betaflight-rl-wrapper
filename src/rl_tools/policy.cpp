@@ -24,6 +24,7 @@ extern "C" {
     #include "cli/cli_debug_print.h"
 #endif
     #include "flight/mixer.h"
+    #include "flight/imu.h"
     #include "sensors/gyro.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
@@ -189,8 +190,9 @@ static T target_orientation[4] = {1, 0, 0, 0};
 static T target_linear_velocity[3] = {0, 0, 0};
 
 // input
-T rl_tools_position[3] = {0, 0, 0};
-T rl_tools_linear_velocity[3] = {0, 0, 0};
+T position[3] = {0, 0, 0};
+T orientation[4] = {1, 0, 0, 0};
+T linear_velocity[3] = {0, 0, 0};
 
 T rl_tools_rpms[4] = {0, 0, 0, 0};
 
@@ -244,10 +246,10 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		#endif
         getQuaternion(&q);
 
-		qr[0] = q.w;
-		qr[1] = q.x;
-		qr[2] = q.y;
-		qr[3] = q.z;
+		qr[0] = q.x;
+		qr[1] = q.y;
+		qr[2] = q.z;
+		qr[3] = q.w;
 		// qr = qt * qd
 		// qd = qt' * qr
 		quaternion_multiplication(qtc, qr, qd);
@@ -265,9 +267,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	}
 	if(mode >= TestObservationMode::POSITION){
 		T p[3], pt[3]; // FLU
-		p[0] = (rl_tools_position[0] - target_position[0]);
-		p[1] = (rl_tools_position[1] - target_position[1]);
-		p[2] = (rl_tools_position[2] - target_position[2]);
+		p[0] = (position[0] - target_position[0]);
+		p[1] = (position[1] - target_position[1]);
+		p[2] = (position[2] - target_position[2]);
 		rotate_vector(Rt_inv, p, pt);
 		observation.position[0] = clip(pt[0], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
 		observation.position[1] = clip(pt[1], -MAX_POSITION_ERROR, MAX_POSITION_ERROR);
@@ -280,9 +282,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	}
 	if(mode >= TestObservationMode::LINEAR_VELOCITY){
 		T v[3], vt[3];
-		v[0] = (rl_tools_linear_velocity[0] - target_linear_velocity[0]);
-		v[1] = (rl_tools_linear_velocity[1] - target_linear_velocity[1]);
-		v[2] = (rl_tools_linear_velocity[2] - target_linear_velocity[2]);
+		v[0] = (linear_velocity[0] - target_linear_velocity[0]);
+		v[1] = (linear_velocity[1] - target_linear_velocity[1]);
+		v[2] = (linear_velocity[2] - target_linear_velocity[2]);
 		rotate_vector(Rt_inv, v, vt);
 		observation.linear_velocity[0] = clip(vt[0], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
 		observation.linear_velocity[1] = clip(vt[1], -MAX_LINEAR_VELOCITY_ERROR, MAX_LINEAR_VELOCITY_ERROR);
@@ -328,6 +330,10 @@ extern "C" void rl_tools_status(void){
 	cliPrintLinef("RLtools: checkpoint test diff: %d / %d", (int)(abs_diff*PRINTF_FACTOR), PRINTF_FACTOR);
 }
 
+T from_channel(T value){
+	return (value - PWM_RANGE_MIN) / (T)(PWM_RANGE_MAX - PWM_RANGE_MIN) * 2 - 1;
+}
+
 extern "C" void rl_tools_control(bool armed){
     if(first_run){
         first_run = false;
@@ -351,7 +357,59 @@ extern "C" void rl_tools_control(bool armed){
 	previous_micros_set = true;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
 
-    float aux2 = rcData[5];
+    T aux2 = rcData[5];
+	position[0] = from_channel(rcData[0]);
+	position[1] = from_channel(rcData[1]);
+	position[2] = from_channel(rcData[2]);
+	T yaw = from_channel(rcData[3]);
+	#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
+	quaternion q;
+	#else
+	quaternion_t q;
+	#endif
+	getQuaternion(&q);
+	T d_e = sqrtf(q.w*q.w + q.z*q.z);
+	if(d_e >= 1e-6){
+
+		T q_estimator_conj[4];
+		q_estimator_conj[0] = q.w/d_e;
+		q_estimator_conj[1] = 0;
+		q_estimator_conj[2] = 0;
+		q_estimator_conj[3] = -q.z/d_e;
+
+		T q_external[4];
+		T pre = yaw/2.0 * M_PI;
+		q_external[0] = cosf(pre);
+		q_external[1] = 0;
+		q_external[2] = 0;
+		q_external[3] = sinf(pre);
+
+		T q_yaw_correction[4];
+		quaternion_multiplication(q_external, q_estimator_conj, q_yaw_correction);
+		T q_delta[4];
+		T alpha = 0.5;
+		q_delta[0] = (1.0f - alpha) * 1.0f + alpha * q_yaw_correction[0];
+		q_delta[1] = 0;
+		q_delta[2] = 0;
+		q_delta[3] = (1.0f - alpha) * 0.0f + alpha * q_yaw_correction[3];
+
+		T temp[4];
+		quaternion_multiplication(q_delta, orientation, temp);
+		T normalization_factor = sqrtf(temp[0]*temp[0] + temp[1]*temp[1] + temp[2]*temp[2] + temp[3]*temp[3]);
+		q.w = temp[0] / normalization_factor;
+		q.x = temp[1] / normalization_factor;
+		q.y = temp[2] / normalization_factor;
+		q.z = temp[3] / normalization_factor;
+		imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
+	}
+
+
+	linear_velocity[0] = from_channel(rcData[4]);
+	linear_velocity[1] = from_channel(rcData[5]);
+	linear_velocity[2] = from_channel(rcData[6]);
+
+
+
     bool next_active = armed && (aux2 > 1750);
     if(!active && next_active){
         reset();
@@ -359,7 +417,7 @@ extern "C" void rl_tools_control(bool armed){
     }
     active = next_active;
 
-	float rc_0 = rcData[4];
+	T rc_0 = rcData[4];
 	if(prev_rc_0_set){
 		if(prev_rc_0 != rc_0){
 			cliPrintLinef("RC 0 changed from %d/%d to %d/%d", (int)(prev_rc_0*PRINTF_FACTOR), PRINTF_FACTOR, (int)(rc_0*PRINTF_FACTOR), PRINTF_FACTOR);
