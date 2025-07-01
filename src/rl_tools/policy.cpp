@@ -371,7 +371,6 @@ extern "C" void rl_tools_control(bool armed){
 		tick_now = true;
 	}
 
-    T aux2 = rcData[5];
 	position[0] = from_channel(rcData[0]);
 	position[1] = from_channel(rcData[1]);
 	position[2] = from_channel(rcData[3]); // the AETR channel map seems to be already applied
@@ -434,10 +433,11 @@ extern "C" void rl_tools_control(bool armed){
 
 
 
-    bool next_active = armed && (aux2 > 1750);
+    T aux1 = rcData[4];
+    bool next_active = aux1 > 1750;
     if(!active && next_active){
         reset();
-        cliPrintLinef("Resetting Inference Executor (Recurrent State) %d %d", armed ? 1 : 0, (int)aux2);
+        cliPrintLinef("Resetting Inference Executor (Recurrent State)");
     }
     active = next_active;
 
@@ -497,11 +497,17 @@ extern "C" void rl_tools_control(bool armed){
     // uint8_t target_indices[4] = {0, 1, 2, 3};
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
         if(active){
+
+			static constexpr T MOTOR_FACTOR = 0.2f;
 			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
 			previous_action[action_i] = clipped_action;
+			clipped_action = (clipped_action * 0.5f + 0.5f)*MOTOR_FACTOR*2.0f - 1.0f;
 			rl_tools_rpms[action_i] = clipped_action;
             motor[target_indices[action_i]] = clipped_action * 500 + 1500;
         }
+		else{
+			motor[target_indices[action_i]] = 900; // stop the motors
+		}
     }
 	if(tick_now && rl_tools_tick % 1000 == 0){
 		cliPrintLinef("Inference time: %lu us", inference_time);
