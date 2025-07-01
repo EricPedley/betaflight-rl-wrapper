@@ -387,14 +387,20 @@ extern "C" void rl_tools_control(bool armed){
 		T q_yaw_correction[4];
 		quaternion_multiplication(q_external, q_estimator_conj, q_yaw_correction);
 		T q_delta[4];
-		T alpha = 0.5;
+		T alpha = 0.02;
 		q_delta[0] = (1.0f - alpha) * 1.0f + alpha * q_yaw_correction[0];
 		q_delta[1] = 0;
 		q_delta[2] = 0;
 		q_delta[3] = (1.0f - alpha) * 0.0f + alpha * q_yaw_correction[3];
 
+		T q_estimator[4];
+		q_estimator[0] = q.w;
+		q_estimator[1] = q.x;
+		q_estimator[2] = q.y;
+		q_estimator[3] = q.z;
+
 		T temp[4];
-		quaternion_multiplication(q_delta, orientation, temp);
+		quaternion_multiplication(q_delta, q_estimator, temp);
 		T normalization_factor = sqrtf(temp[0]*temp[0] + temp[1]*temp[1] + temp[2]*temp[2] + temp[3]*temp[3]);
 		q.w = temp[0] / normalization_factor;
 		q.x = temp[1] / normalization_factor;
