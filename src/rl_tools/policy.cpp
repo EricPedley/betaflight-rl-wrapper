@@ -76,7 +76,7 @@ uint64_t previous_micros = 0;
 bool previous_micros_set = false;
 uint32_t micros_overflow_counter = 0;
 
-timeUs_t previous_rl_tools_tick = 0;
+uint64_t previous_rl_tools_tick = 0;
 bool previous_rl_tools_tick_set = false;
 uint32_t rl_tools_tick = 0;
 timeUs_t previous_timing = 0;
@@ -191,7 +191,6 @@ static T target_linear_velocity[3] = {0, 0, 0};
 
 // input
 T position[3] = {0, 0, 0};
-T orientation[4] = {1, 0, 0, 0};
 T linear_velocity[3] = {0, 0, 0};
 
 T rl_tools_rpms[4] = {0, 0, 0, 0};
@@ -357,11 +356,26 @@ extern "C" void rl_tools_control(bool armed){
 	previous_micros_set = true;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
 
+	bool tick_now = false;
+	if(previous_rl_tools_tick_set){
+		if((now - previous_rl_tools_tick >= 1000)){
+			rl_tools_tick++;
+			previous_rl_tools_tick = now;
+			tick_now = true;
+		}
+	}
+	else{
+		rl_tools_tick = 0;
+		previous_rl_tools_tick_set = true;
+		previous_rl_tools_tick = now;
+		tick_now = true;
+	}
+
     T aux2 = rcData[5];
 	position[0] = from_channel(rcData[0]);
 	position[1] = from_channel(rcData[1]);
-	position[2] = from_channel(rcData[2]);
-	T yaw = from_channel(rcData[3]);
+	position[2] = from_channel(rcData[3]); // the AETR channel map seems to be already applied
+	T yaw = from_channel(rcData[2]);
 	#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
 	quaternion q;
 	#else
@@ -407,6 +421,10 @@ extern "C" void rl_tools_control(bool armed){
 		q.y = temp[2] / normalization_factor;
 		q.z = temp[3] / normalization_factor;
 		imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
+		// imuSetAttitudeQuat(q_external[0], q_external[1], q_external[2], q_external[3]);
+		// if(tick_now && rl_tools_tick % 1000 == 0){
+		// 	cliPrintLinef("q_external %d %d %d %d / %d", (int)(q_external[0]*PRINTF_FACTOR), (int)(q_external[1]*PRINTF_FACTOR), (int)(q_external[2]*PRINTF_FACTOR), (int)(q_external[3]*PRINTF_FACTOR), PRINTF_FACTOR);
+		// }
 	}
 
 
@@ -485,20 +503,6 @@ extern "C" void rl_tools_control(bool armed){
             motor[target_indices[action_i]] = clipped_action * 500 + 1500;
         }
     }
-	bool tick_now = false;
-	if(previous_rl_tools_tick_set){
-		if((now - previous_rl_tools_tick >= 1000)){
-			rl_tools_tick++;
-			previous_rl_tools_tick = now;
-			tick_now = true;
-		}
-	}
-	else{
-		rl_tools_tick = 0;
-		previous_rl_tools_tick_set = true;
-		previous_rl_tools_tick = now;
-		tick_now = true;
-	}
 	if(tick_now && rl_tools_tick % 1000 == 0){
 		cliPrintLinef("Inference time: %lu us", inference_time);
 		if(intermediate_statii_full){
