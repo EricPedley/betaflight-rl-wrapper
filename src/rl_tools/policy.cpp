@@ -330,6 +330,8 @@ extern "C" void rl_tools_status(void){
 }
 
 T from_channel(T value){
+	static_assert(PWM_RANGE_MIN == 1000, "PWM_RANGE_MIN must be 1000");
+	static_assert(PWM_RANGE_MAX == 2000, "PWM_RANGE_MAX must be 2000");
 	return (value - PWM_RANGE_MIN) / (T)(PWM_RANGE_MAX - PWM_RANGE_MIN) * 2 - 1;
 }
 
@@ -383,6 +385,7 @@ extern "C" void rl_tools_control(bool armed){
 	getQuaternion(&q);
 	T d_e = sqrtf(q.w*q.w + q.z*q.z);
 	if(d_e >= 1e-6){
+		// Only do yaw correction if we are not in the yaw singularity
 
 		T q_estimator_conj[4];
 		q_estimator_conj[0] = q.w/d_e;
@@ -427,9 +430,24 @@ extern "C" void rl_tools_control(bool armed){
 	}
 
 
-	linear_velocity[0] = from_channel(rcData[4]);
-	linear_velocity[1] = from_channel(rcData[5]);
-	linear_velocity[2] = from_channel(rcData[6]);
+	linear_velocity[0] = from_channel(rcData[5]);
+	linear_velocity[1] = from_channel(rcData[6]);
+	linear_velocity[2] = from_channel(rcData[7]);
+
+	if(tick_now && rl_tools_tick % 1000 == 0){
+		cliPrintLinef("RAW: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d",
+			(int)(position[0]*PRINTF_FACTOR),
+			(int)(position[1]*PRINTF_FACTOR),
+			(int)(position[2]*PRINTF_FACTOR),
+			(int)(q.w*PRINTF_FACTOR),
+			(int)(q.x*PRINTF_FACTOR),
+			(int)(q.y*PRINTF_FACTOR),
+			(int)(q.z*PRINTF_FACTOR),
+			(int)(linear_velocity[0]*PRINTF_FACTOR),
+			(int)(linear_velocity[1]*PRINTF_FACTOR),
+			(int)(linear_velocity[2]*PRINTF_FACTOR)
+		);
+	}
 
 
 
@@ -463,6 +481,23 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
+	if(tick_now && rl_tools_tick % 1000 == 0){
+		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
+			(int)(observation.position[0]*PRINTF_FACTOR),
+			(int)(observation.position[1]*PRINTF_FACTOR),
+			(int)(observation.position[2]*PRINTF_FACTOR),
+			(int)(observation.orientation[0]*PRINTF_FACTOR),
+			(int)(observation.orientation[1]*PRINTF_FACTOR),
+			(int)(observation.orientation[2]*PRINTF_FACTOR),
+			(int)(observation.orientation[3]*PRINTF_FACTOR),
+			(int)(observation.linear_velocity[0]*PRINTF_FACTOR),
+			(int)(observation.linear_velocity[1]*PRINTF_FACTOR),
+			(int)(observation.linear_velocity[2]*PRINTF_FACTOR),
+			(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
+			(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
+			(int)(observation.angular_velocity[2]*PRINTF_FACTOR)
+		);
+	}
 	timeUs_t pre_inference = micros();
 	RLtoolsInferenceExecutorStatus executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
 	if(executor_status.source == RL_TOOLS_INFERENCE_EXECUTOR_STATUS_SOURCE_CONTROL){
