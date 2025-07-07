@@ -245,10 +245,10 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		#endif
         getQuaternion(&q);
 
-		qr[0] = q.x;
-		qr[1] = q.y;
-		qr[2] = q.z;
-		qr[3] = q.w;
+		qr[0] = q.w;
+		qr[1] = q.x;
+		qr[2] = q.y;
+		qr[3] = q.z;
 		// qr = qt * qd
 		// qd = qt' * qr
 		quaternion_multiplication(qtc, qr, qd);
