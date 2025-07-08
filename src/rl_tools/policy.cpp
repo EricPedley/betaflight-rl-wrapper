@@ -535,7 +535,7 @@ extern "C" void rl_tools_control(bool armed){
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
         if(active){
 
-			static constexpr T MOTOR_FACTOR = 0.6f;
+			static constexpr T MOTOR_FACTOR = 1.0f;
 			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
 			previous_action[action_i] = clipped_action;
 			clipped_action = (clipped_action * 0.5f + 0.5f)*MOTOR_FACTOR; // [0, 1]
