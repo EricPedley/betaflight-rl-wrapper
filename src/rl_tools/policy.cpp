@@ -485,17 +485,17 @@ extern "C" void rl_tools_control(bool armed){
 		// 	(int)(linear_velocity[1]*PRINTF_FACTOR),
 		// 	(int)(linear_velocity[2]*PRINTF_FACTOR)
 		// );
-		cliPrintLinef("ACC body: x %d y %d z %d ACC: x %d y %d z %d INTEGRAL: x %d y %d z %d",
-			(int)(acceleration_body[0]*PRINTF_FACTOR),
-			(int)(acceleration_body[1]*PRINTF_FACTOR),
-			(int)(acceleration_body[2]*PRINTF_FACTOR),
-			(int)(acceleration[0]*PRINTF_FACTOR),
-			(int)(acceleration[1]*PRINTF_FACTOR),
-			(int)(acceleration[2]*PRINTF_FACTOR),
-			(int)(acceleration_integral[0]*PRINTF_FACTOR),
-			(int)(acceleration_integral[1]*PRINTF_FACTOR),
-			(int)(acceleration_integral[2]*PRINTF_FACTOR)
-		);
+		// cliPrintLinef("ACC body: x %d y %d z %d ACC: x %d y %d z %d INTEGRAL: x %d y %d z %d",
+		// 	(int)(acceleration_body[0]*PRINTF_FACTOR),
+		// 	(int)(acceleration_body[1]*PRINTF_FACTOR),
+		// 	(int)(acceleration_body[2]*PRINTF_FACTOR),
+		// 	(int)(acceleration[0]*PRINTF_FACTOR),
+		// 	(int)(acceleration[1]*PRINTF_FACTOR),
+		// 	(int)(acceleration[2]*PRINTF_FACTOR),
+		// 	(int)(acceleration_integral[0]*PRINTF_FACTOR),
+		// 	(int)(acceleration_integral[1]*PRINTF_FACTOR),
+		// 	(int)(acceleration_integral[2]*PRINTF_FACTOR)
+		// );
 	}
 
 	if(USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM){
@@ -539,21 +539,21 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
 	if(tick_now && rl_tools_tick % 100 == 0){
-		// cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
-		// 	(int)(observation.position[0]*PRINTF_FACTOR),
-		// 	(int)(observation.position[1]*PRINTF_FACTOR),
-		// 	(int)(observation.position[2]*PRINTF_FACTOR),
-		// 	(int)(observation.orientation[0]*PRINTF_FACTOR),
-		// 	(int)(observation.orientation[1]*PRINTF_FACTOR),
-		// 	(int)(observation.orientation[2]*PRINTF_FACTOR),
-		// 	(int)(observation.orientation[3]*PRINTF_FACTOR),
-		// 	(int)(observation.linear_velocity[0]*PRINTF_FACTOR),
-		// 	(int)(observation.linear_velocity[1]*PRINTF_FACTOR),
-		// 	(int)(observation.linear_velocity[2]*PRINTF_FACTOR),
-		// 	(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
-		// 	(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
-		// 	(int)(observation.angular_velocity[2]*PRINTF_FACTOR)
-		// );
+		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
+			(int)(observation.position[0]*PRINTF_FACTOR),
+			(int)(observation.position[1]*PRINTF_FACTOR),
+			(int)(observation.position[2]*PRINTF_FACTOR),
+			(int)(observation.orientation[0]*PRINTF_FACTOR),
+			(int)(observation.orientation[1]*PRINTF_FACTOR),
+			(int)(observation.orientation[2]*PRINTF_FACTOR),
+			(int)(observation.orientation[3]*PRINTF_FACTOR),
+			(int)(observation.linear_velocity[0]*PRINTF_FACTOR),
+			(int)(observation.linear_velocity[1]*PRINTF_FACTOR),
+			(int)(observation.linear_velocity[2]*PRINTF_FACTOR),
+			(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
+			(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
+			(int)(observation.angular_velocity[2]*PRINTF_FACTOR)
+		);
 	}
 	timeUs_t pre_inference = micros();
 	RLtoolsInferenceExecutorStatus executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
