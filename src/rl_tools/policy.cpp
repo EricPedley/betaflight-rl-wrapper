@@ -88,8 +88,9 @@ bool first_run = true;
 bool active = false;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
-constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.1;
+constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.05;
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
+static constexpr T MOTOR_FACTOR = 0.6f;
 
 #ifndef USE_CLI_DEBUG_PRINT
 void cliPrintLinef(const char *format, ...){/*noop*/}
@@ -589,7 +590,6 @@ extern "C" void rl_tools_control(bool armed){
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
         if(active){
 
-			static constexpr T MOTOR_FACTOR = 1.0f;
 			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
 			previous_action[action_i] = clipped_action;
 			clipped_action = (clipped_action * 0.5f + 0.5f)*MOTOR_FACTOR; // [0, 1]
