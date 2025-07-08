@@ -54,6 +54,12 @@ rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIR
 ```
 
 
+Build vanilla Hummingbird V4 on Ubuntu 24.04
+```
+rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1 EXTRA_FLAGS="-Wno-error=enum-int-mismatch" -j16
+```
+
+
 
 ### Saving Flash Space
 
