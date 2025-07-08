@@ -85,6 +85,7 @@ bool previous_timing_set = false;
 
 bool first_run = true;
 bool active = false;
+TI activation_tick = 0;
 
 #ifndef USE_CLI_DEBUG_PRINT
 void cliPrintLinef(const char *format, ...){/*noop*/}
@@ -384,50 +385,50 @@ extern "C" void rl_tools_control(bool armed){
 	#endif
 	getQuaternion(&q);
 	T d_e = sqrtf(q.w*q.w + q.z*q.z);
-	// if(d_e >= 1e-6){
-	// 	// Only do yaw correction if we are not in the yaw singularity
+	if(d_e >= 1e-6){
+		// Only do yaw correction if we are not in the yaw singularity
 
-	// 	T q_estimator_conj[4];
-	// 	q_estimator_conj[0] = q.w/d_e;
-	// 	q_estimator_conj[1] = 0;
-	// 	q_estimator_conj[2] = 0;
-	// 	q_estimator_conj[3] = -q.z/d_e;
+		T q_estimator_conj[4];
+		q_estimator_conj[0] = q.w/d_e;
+		q_estimator_conj[1] = 0;
+		q_estimator_conj[2] = 0;
+		q_estimator_conj[3] = -q.z/d_e;
 
-	// 	T q_external[4];
-	// 	T pre = yaw/2.0 * M_PI;
-	// 	q_external[0] = cosf(pre);
-	// 	q_external[1] = 0;
-	// 	q_external[2] = 0;
-	// 	q_external[3] = sinf(pre);
+		T q_external[4];
+		T pre = yaw/2.0 * M_PI;
+		q_external[0] = cosf(pre);
+		q_external[1] = 0;
+		q_external[2] = 0;
+		q_external[3] = sinf(pre);
 
-	// 	T q_yaw_correction[4];
-	// 	quaternion_multiplication(q_external, q_estimator_conj, q_yaw_correction);
-	// 	T q_delta[4];
-	// 	T alpha = 0.02;
-	// 	q_delta[0] = (1.0f - alpha) * 1.0f + alpha * q_yaw_correction[0];
-	// 	q_delta[1] = 0;
-	// 	q_delta[2] = 0;
-	// 	q_delta[3] = (1.0f - alpha) * 0.0f + alpha * q_yaw_correction[3];
+		T q_yaw_correction[4];
+		quaternion_multiplication(q_external, q_estimator_conj, q_yaw_correction);
+		T q_delta[4];
+		T alpha = 0.02;
+		q_delta[0] = (1.0f - alpha) * 1.0f + alpha * q_yaw_correction[0];
+		q_delta[1] = 0;
+		q_delta[2] = 0;
+		q_delta[3] = (1.0f - alpha) * 0.0f + alpha * q_yaw_correction[3];
 
-	// 	T q_estimator[4];
-	// 	q_estimator[0] = q.w;
-	// 	q_estimator[1] = q.x;
-	// 	q_estimator[2] = q.y;
-	// 	q_estimator[3] = q.z;
+		T q_estimator[4];
+		q_estimator[0] = q.w;
+		q_estimator[1] = q.x;
+		q_estimator[2] = q.y;
+		q_estimator[3] = q.z;
 
-	// 	T temp[4];
-	// 	quaternion_multiplication(q_delta, q_estimator, temp);
-	// 	T normalization_factor = sqrtf(temp[0]*temp[0] + temp[1]*temp[1] + temp[2]*temp[2] + temp[3]*temp[3]);
-	// 	q.w = temp[0] / normalization_factor;
-	// 	q.x = temp[1] / normalization_factor;
-	// 	q.y = temp[2] / normalization_factor;
-	// 	q.z = temp[3] / normalization_factor;
-	// 	imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
-	// 	// imuSetAttitudeQuat(q_external[0], q_external[1], q_external[2], q_external[3]);
-	// 	// if(tick_now && rl_tools_tick % 1000 == 0){
-	// 	// 	cliPrintLinef("q_external %d %d %d %d / %d", (int)(q_external[0]*PRINTF_FACTOR), (int)(q_external[1]*PRINTF_FACTOR), (int)(q_external[2]*PRINTF_FACTOR), (int)(q_external[3]*PRINTF_FACTOR), PRINTF_FACTOR);
-	// 	// }
-	// }
+		T temp[4];
+		quaternion_multiplication(q_delta, q_estimator, temp);
+		T normalization_factor = sqrtf(temp[0]*temp[0] + temp[1]*temp[1] + temp[2]*temp[2] + temp[3]*temp[3]);
+		q.w = temp[0] / normalization_factor;
+		q.x = temp[1] / normalization_factor;
+		q.y = temp[2] / normalization_factor;
+		q.z = temp[3] / normalization_factor;
+		imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
+		// imuSetAttitudeQuat(q_external[0], q_external[1], q_external[2], q_external[3]);
+		// if(tick_now && rl_tools_tick % 1000 == 0){
+		// 	cliPrintLinef("q_external %d %d %d %d / %d", (int)(q_external[0]*PRINTF_FACTOR), (int)(q_external[1]*PRINTF_FACTOR), (int)(q_external[2]*PRINTF_FACTOR), (int)(q_external[3]*PRINTF_FACTOR), PRINTF_FACTOR);
+		// }
+	}
 
 
 	linear_velocity[0] = from_channel(rcData[5]);
@@ -456,6 +457,7 @@ extern "C" void rl_tools_control(bool armed){
     if(!active && next_active){
         reset();
         cliPrintLinef("Resetting Inference Executor (Recurrent State)");
+		activation_tick += 1;
     }
     active = next_active;
 
@@ -481,7 +483,7 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
-	if(tick_now && rl_tools_tick % 1000 == 0){
+	if(tick_now && rl_tools_tick % 100 == 0){
 		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
 			(int)(observation.position[0]*PRINTF_FACTOR),
 			(int)(observation.position[1]*PRINTF_FACTOR),
@@ -533,16 +535,17 @@ extern "C" void rl_tools_control(bool armed){
     for(TI action_i = 0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
         if(active){
 
-			static constexpr T MOTOR_FACTOR = 0.2f;
+			static constexpr T MOTOR_FACTOR = 0.6f;
 			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
 			previous_action[action_i] = clipped_action;
-			clipped_action = (clipped_action * 0.5f + 0.5f)*MOTOR_FACTOR*2.0f - 1.0f;
+			clipped_action = (clipped_action * 0.5f + 0.5f)*MOTOR_FACTOR; // [0, 1]
 			rl_tools_rpms[action_i] = clipped_action;
-            motor[target_indices[action_i]] = (clipped_action * 0.5f + 0.5f) * 500 + 1000;
+            motor[target_indices[action_i]] = clipped_action * 2000;
+			// motor[target_indices[action_i]] =  (activation_tick % 10) * 200;
 			// motor[target_indices[action_i]] = 1000 + 1000 * (rl_tools_tick % 10000) / 10000.0;
-     }
+		}
 		else{
-			motor[target_indices[action_i]] = 0; // stop the motors
+			// motor[target_indices[action_i]] = 0; // stop the motors
 		}
     }
 	if(tick_now && rl_tools_tick % 1000 == 0){
