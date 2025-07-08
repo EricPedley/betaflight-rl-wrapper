@@ -26,6 +26,7 @@ extern "C" {
     #include "flight/mixer.h"
     #include "flight/imu.h"
     #include "sensors/gyro.h"
+	#include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
 	#undef RNG
@@ -86,6 +87,9 @@ bool previous_timing_set = false;
 bool first_run = true;
 bool active = false;
 TI activation_tick = 0;
+T acceleration_integral[3] = {0, 0, 0};
+constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.1;
+constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 
 #ifndef USE_CLI_DEBUG_PRINT
 void cliPrintLinef(const char *format, ...){/*noop*/}
@@ -313,6 +317,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	}
 }
 void reset(){
+	acceleration_integral[0] = 0;
+	acceleration_integral[1] = 0;
+	acceleration_integral[2] = 0;
 	for(int action_i=0; action_i < RL_TOOLS_INTERFACE_APPLICATIONS_L2F_ACTION_DIM; action_i++){
 		previous_action[action_i] = -1;
 	}
@@ -343,11 +350,14 @@ extern "C" void rl_tools_control(bool armed){
         rl_tools_inference_applications_l2f_init();
     }
     timeUs_t now_narrow = micros();
+	timeUs_t diff = 0;
+	bool diff_set = false;
     if(previous_micros_set){
 		if(now_narrow < previous_micros){
 			micros_overflow_counter++;
 		}
-		auto diff = now_narrow - previous_micros;
+		diff = now_narrow - previous_micros;
+		diff_set = true;
 		rl_tools_control_invocation_dts[rl_tools_control_invocation_dts_index] = diff;
 		rl_tools_control_invocation_dts_index++;
 		if(rl_tools_control_invocation_dts_index >= NUM_RL_TOOLS_CONTROL_INVOCATION_DTS){
@@ -430,24 +440,68 @@ extern "C" void rl_tools_control(bool armed){
 		// }
 	}
 
-
 	linear_velocity[0] = from_channel(rcData[5]);
 	linear_velocity[1] = from_channel(rcData[6]);
 	linear_velocity[2] = from_channel(rcData[7]);
 
-	if(tick_now && rl_tools_tick % 1000 == 0){
-		cliPrintLinef("RAW: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d",
-			(int)(position[0]*PRINTF_FACTOR),
-			(int)(position[1]*PRINTF_FACTOR),
-			(int)(position[2]*PRINTF_FACTOR),
-			(int)(q.w*PRINTF_FACTOR),
-			(int)(q.x*PRINTF_FACTOR),
-			(int)(q.y*PRINTF_FACTOR),
-			(int)(q.z*PRINTF_FACTOR),
-			(int)(linear_velocity[0]*PRINTF_FACTOR),
-			(int)(linear_velocity[1]*PRINTF_FACTOR),
-			(int)(linear_velocity[2]*PRINTF_FACTOR)
+	T acceleration_body[3];
+	static constexpr T GRAVITY = 9.81;
+	acceleration_body[0] = (acc.accADC[0] / acc.dev.acc_1G) * GRAVITY;
+	acceleration_body[1] = (acc.accADC[1] / acc.dev.acc_1G) * GRAVITY;
+	acceleration_body[2] = (acc.accADC[2] / acc.dev.acc_1G) * GRAVITY;
+
+	T q_vec[4], R[9];
+	q_vec[0] = q.w;
+	q_vec[1] = q.x;
+	q_vec[2] = q.y;
+	q_vec[3] = q.z;
+	quaternion_to_rotation_matrix(q_vec, R);
+
+	T acceleration[3];
+	rotate_vector(R, acceleration_body, acceleration);
+
+	acceleration[2] -= GRAVITY;
+
+	if(diff_set){
+		T dt = diff * 1e-6f;
+		T ACCELERATION_INTEGRAL_DECAY = expf(-dt / ACCELERATION_INTEGRAL_TIMECONSTANT);
+		acceleration_integral[0] = acceleration_integral[0] * ACCELERATION_INTEGRAL_DECAY + acceleration[0] * dt;
+		acceleration_integral[1] = acceleration_integral[1] * ACCELERATION_INTEGRAL_DECAY + acceleration[1] * dt;
+		acceleration_integral[2] = acceleration_integral[2] * ACCELERATION_INTEGRAL_DECAY + acceleration[2] * dt;
+	}
+
+
+	if(tick_now && rl_tools_tick % 100 == 0){
+		// cliPrintLinef("RAW: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d",
+		// 	(int)(position[0]*PRINTF_FACTOR),
+		// 	(int)(position[1]*PRINTF_FACTOR),
+		// 	(int)(position[2]*PRINTF_FACTOR),
+		// 	(int)(q.w*PRINTF_FACTOR),
+		// 	(int)(q.x*PRINTF_FACTOR),
+		// 	(int)(q.y*PRINTF_FACTOR),
+		// 	(int)(q.z*PRINTF_FACTOR),
+		// 	(int)(linear_velocity[0]*PRINTF_FACTOR),
+		// 	(int)(linear_velocity[1]*PRINTF_FACTOR),
+		// 	(int)(linear_velocity[2]*PRINTF_FACTOR)
+		// );
+		cliPrintLinef("ACC body: x %d y %d z %d ACC: x %d y %d z %d INTEGRAL: x %d y %d z %d",
+			(int)(acceleration_body[0]*PRINTF_FACTOR),
+			(int)(acceleration_body[1]*PRINTF_FACTOR),
+			(int)(acceleration_body[2]*PRINTF_FACTOR),
+			(int)(acceleration[0]*PRINTF_FACTOR),
+			(int)(acceleration[1]*PRINTF_FACTOR),
+			(int)(acceleration[2]*PRINTF_FACTOR),
+			(int)(acceleration_integral[0]*PRINTF_FACTOR),
+			(int)(acceleration_integral[1]*PRINTF_FACTOR),
+			(int)(acceleration_integral[2]*PRINTF_FACTOR)
 		);
+	}
+
+	if(USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM){
+		// since the mocap position/velocity feedback has a significant delay, we add an accelerometer-based feedforward term
+		linear_velocity[0] += acceleration_integral[0];
+		linear_velocity[1] += acceleration_integral[1];
+		linear_velocity[2] += acceleration_integral[2];
 	}
 
 
@@ -484,21 +538,21 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
 	if(tick_now && rl_tools_tick % 100 == 0){
-		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
-			(int)(observation.position[0]*PRINTF_FACTOR),
-			(int)(observation.position[1]*PRINTF_FACTOR),
-			(int)(observation.position[2]*PRINTF_FACTOR),
-			(int)(observation.orientation[0]*PRINTF_FACTOR),
-			(int)(observation.orientation[1]*PRINTF_FACTOR),
-			(int)(observation.orientation[2]*PRINTF_FACTOR),
-			(int)(observation.orientation[3]*PRINTF_FACTOR),
-			(int)(observation.linear_velocity[0]*PRINTF_FACTOR),
-			(int)(observation.linear_velocity[1]*PRINTF_FACTOR),
-			(int)(observation.linear_velocity[2]*PRINTF_FACTOR),
-			(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
-			(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
-			(int)(observation.angular_velocity[2]*PRINTF_FACTOR)
-		);
+		// cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
+		// 	(int)(observation.position[0]*PRINTF_FACTOR),
+		// 	(int)(observation.position[1]*PRINTF_FACTOR),
+		// 	(int)(observation.position[2]*PRINTF_FACTOR),
+		// 	(int)(observation.orientation[0]*PRINTF_FACTOR),
+		// 	(int)(observation.orientation[1]*PRINTF_FACTOR),
+		// 	(int)(observation.orientation[2]*PRINTF_FACTOR),
+		// 	(int)(observation.orientation[3]*PRINTF_FACTOR),
+		// 	(int)(observation.linear_velocity[0]*PRINTF_FACTOR),
+		// 	(int)(observation.linear_velocity[1]*PRINTF_FACTOR),
+		// 	(int)(observation.linear_velocity[2]*PRINTF_FACTOR),
+		// 	(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
+		// 	(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
+		// 	(int)(observation.angular_velocity[2]*PRINTF_FACTOR)
+		// );
 	}
 	timeUs_t pre_inference = micros();
 	RLtoolsInferenceExecutorStatus executor_status = rl_tools_inference_applications_l2f_control(now*1000, &observation, &action);
