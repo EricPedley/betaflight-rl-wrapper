@@ -7,3 +7,6 @@
 [submodule "firmware/SITL"]
 	path = firmware/SITL
 	url = https://github.com/rl-tools/betaflight-firmware
+[submodule "firmware/SAVAGEBEE_PUSHER"]
+	path = firmware/SAVAGEBEE_PUSHER
+	url = https://github.com/rl-tools/betaflight-firmware
