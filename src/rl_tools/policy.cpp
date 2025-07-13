@@ -29,6 +29,10 @@ extern "C" {
 	#include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
+#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
+	#include "drivers/light_led.h"
+	#include "drivers/sound_beeper.h"
+#endif
 	#undef RNG
 }
 #pragma GCC diagnostic pop
@@ -538,6 +542,10 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
+	#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
+	// ledSet(1, (rl_tools_tick / 100) % 2 == 0);
+	ledSet(1, fabsf(observation.position[0] > 0.1f));
+	#endif
 	if(tick_now && rl_tools_tick % 100 == 0){
 		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
 			(int)(observation.position[0]*PRINTF_FACTOR),

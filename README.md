@@ -48,9 +48,15 @@ Run `minimal-l2f.py`
 
 
 Using Ubuntu 24.04 this works for me:
+HUMMINGBIRD_F4_V4:
 ```
 cd firmware/HUMMINGBIRD_F4_V4
 rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
+```
+SAVAGEBEE_PUSHER:
+```
+cd firmware/SAVAGEBEE_PUSHER
+rm -rf obj && make TARGET=SAVAGEBEE_PUSHER RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```
 
 
