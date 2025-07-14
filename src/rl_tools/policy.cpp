@@ -200,7 +200,7 @@ static constexpr T MAX_POSITION_ERROR = 1;
 static constexpr T MAX_LINEAR_VELOCITY_ERROR = 1;
 
 // setpoint
-static T target_position[3] = {0, 0, 0.2};
+static T target_position[3] = {0, 0, 0};
 static T target_orientation[4] = {1, 0, 0, 0};
 static T target_linear_velocity[3] = {0, 0, 0};
 
