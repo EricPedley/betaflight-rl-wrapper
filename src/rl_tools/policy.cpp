@@ -94,7 +94,12 @@ TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.05;
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
+#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
+static constexpr T MOTOR_FACTOR = 0.5f;
+#else
+// HUMMINGBIRD
 static constexpr T MOTOR_FACTOR = 0.6f;
+#endif
 
 #ifndef USE_CLI_DEBUG_PRINT
 void cliPrintLinef(const char *format, ...){/*noop*/}
