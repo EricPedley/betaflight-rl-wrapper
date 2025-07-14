@@ -544,7 +544,7 @@ extern "C" void rl_tools_control(bool armed){
 	observe(observation, TestObservationMode::ACTION_HISTORY);
 	#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 	// ledSet(1, (rl_tools_tick / 100) % 2 == 0);
-	ledSet(1, fabsf(observation.position[0] > 0.1f));
+	ledSet(1, fabsf(observation.position[0]) > 0.1f);
 	#endif
 	if(tick_now && rl_tools_tick % 100 == 0){
 		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
