@@ -98,7 +98,7 @@ constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 static constexpr T MOTOR_FACTOR = 0.5f;
 #else
 // HUMMINGBIRD
-static constexpr T MOTOR_FACTOR = 0.6f;
+static constexpr T MOTOR_FACTOR = 1.0f;
 #endif
 
 #ifndef USE_CLI_DEBUG_PRINT
