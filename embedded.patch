@@ -1,103 +1,127 @@
 diff --git a/Makefile b/Makefile
-index c6d2c6463..e1e60b9e9 100644
+index 9c1586287..48353ad40 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -113,7 +113,7 @@ export RM := rm
- include $(MAKE_SCRIPT_DIR)/$(OSFAMILY).mk
- 
- # include the tools makefile
--include $(MAKE_SCRIPT_DIR)/tools.mk
-+# include $(MAKE_SCRIPT_DIR)/tools.mk
- 
- # Search path for sources
- VPATH           := $(SRC_DIR):$(LIB_MAIN_DIR):$(PLATFORM_DIR)
-@@ -178,7 +178,7 @@ DEBUG_FLAGS            = -ggdb2
- endif
- OPTIMISATION_BASE     := -flto=auto -fuse-linker-plugin -ffast-math -fmerge-all-constants
- OPTIMISE_DEFAULT      := -O2
--OPTIMISE_SPEED        := -Ofast
-+OPTIMISE_SPEED        := -O3 -ffast-math
- OPTIMISE_SIZE         := -Os
- 
- LTO_FLAGS             := $(OPTIMISATION_BASE) $(OPTIMISE_SPEED)
-@@ -480,6 +480,8 @@ $(TARGET_HEX): $(TARGET_BIN)
+@@ -416,6 +416,8 @@ $(TARGET_HEX): $(TARGET_BIN)
  
  endif
  
-+include ../oot.mk
++include ../../oot.mk
 +
  $(TARGET_ELF): $(TARGET_OBJS) $(LD_SCRIPT) $(LD_SCRIPTS)
  	@echo "Linking $(TARGET_NAME)" "$(STDOUT)"
  	$(V1) $(CROSS_CC) -o $@ $(filter-out %.ld,$^) $(LD_FLAGS)
 diff --git a/mk/local.mk b/mk/local.mk
 new file mode 100644
-index 000000000..8253a2aff
+index 000000000..3d074ded5
 --- /dev/null
 +++ b/mk/local.mk
-@@ -0,0 +1 @@
-+INCLUDE_DIRS += $(ROOT_DIR)/../src
+@@ -0,0 +1,2 @@
++include ../../oot_pre.mk
++CFLAGS += -Wno-error=enum-int-mismatch -D RL_TOOLS_BETAFLIGHT_VERSION_4_5
 \ No newline at end of file
-diff --git a/mk/local_post.mk b/mk/local_post.mk
-new file mode 100644
-index 000000000..e69de29bb
+diff --git a/src/main/cli/cli.c b/src/main/cli/cli.c
+index bc775e73d..687b76cfe 100644
+--- a/src/main/cli/cli.c
++++ b/src/main/cli/cli.c
+@@ -174,6 +174,10 @@ bool cliMode = false;
+ 
+ #include "cli.h"
+ 
++#ifdef RL_TOOLS_BETAFLIGHT_ENABLE
++#include "rl_tools/policy.h"
++#endif
++
+ static serialPort_t *cliPort = NULL;
+ 
+ // Space required to set array parameters
+@@ -4833,6 +4837,10 @@ if (buildKey) {
+         cliPrintf(" %s", armingDisableFlagNames[bitpos]);
+     }
+     cliPrintLinefeed();
++
++    #ifdef RL_TOOLS_BETAFLIGHT_ENABLE
++        rl_tools_status();
++    #endif
+ }
+ 
+ static void cliTasks(const char *cmdName, char *cmdline)
+diff --git a/src/main/fc/core.c b/src/main/fc/core.c
+index 1e35ccd0d..8a8852f59 100644
+--- a/src/main/fc/core.c
++++ b/src/main/fc/core.c
+@@ -311,11 +311,11 @@ void updateArmingStatus(void)
+             unsetArmingDisabled(ARMING_DISABLED_BOXFAILSAFE);
+         }
+ 
+-        if (calculateThrottleStatus() != THROTTLE_LOW) {
+-            setArmingDisabled(ARMING_DISABLED_THROTTLE);
+-        } else {
++        // if (calculateThrottleStatus() != THROTTLE_LOW) {
++        //     setArmingDisabled(ARMING_DISABLED_THROTTLE);
++        // } else {
+             unsetArmingDisabled(ARMING_DISABLED_THROTTLE);
+-        }
++        // }
+ 
+         if (!isUpright() && !IS_RC_MODE_ACTIVE(BOXFLIPOVERAFTERCRASH)) {
+             setArmingDisabled(ARMING_DISABLED_ANGLE);
+diff --git a/src/main/flight/imu.c b/src/main/flight/imu.c
+index 8f4e41d72..0dd8267a9 100644
+--- a/src/main/flight/imu.c
++++ b/src/main/flight/imu.c
+@@ -762,7 +762,7 @@ void getQuaternion(quaternion *quat)
+    quat->z = q.z;
+ }
+ 
+-#ifdef SIMULATOR_BUILD
++#if defined(SIMULATOR_BUILD) || defined(RL_TOOLS_BETAFLIGHT_ENABLE)
+ void imuSetAttitudeRPY(float roll, float pitch, float yaw)
+ {
+     IMU_LOCK;
+diff --git a/src/main/flight/imu.h b/src/main/flight/imu.h
+index 9e7c6627a..4aec9090a 100644
+--- a/src/main/flight/imu.h
++++ b/src/main/flight/imu.h
+@@ -75,7 +75,7 @@ void imuUpdateAttitude(timeUs_t currentTimeUs);
+ 
+ void imuInit(void);
+ 
+-#ifdef SIMULATOR_BUILD
++#if defined(SIMULATOR_BUILD) || defined(RL_TOOLS_BETAFLIGHT_ENABLE)
+ void imuSetAttitudeRPY(float roll, float pitch, float yaw);  // in deg
+ void imuSetAttitudeQuat(float w, float x, float y, float z);
+ #if defined(SIMULATOR_IMU_SYNC)
 diff --git a/src/main/flight/mixer.c b/src/main/flight/mixer.c
-index a2d5bc8b9..f14774f11 100644
+index 6faed644d..e8c3349d2 100644
 --- a/src/main/flight/mixer.c
 +++ b/src/main/flight/mixer.c
-@@ -67,6 +67,9 @@
+@@ -64,6 +64,10 @@
  
  #include "mixer.h"
  
++#ifdef RL_TOOLS_BETAFLIGHT_ENABLE
 +#include "rl_tools/policy.h"
++#endif
 +
-+
- #define DYN_LPF_THROTTLE_STEPS             100
- #define DYN_LPF_THROTTLE_UPDATE_DELAY_US  5000 // minimum of 5ms between updates
+ #define DYN_LPF_THROTTLE_STEPS           100
+ #define DYN_LPF_THROTTLE_UPDATE_DELAY_US 5000 // minimum of 5ms between updates
  
-@@ -477,6 +480,8 @@ static void applyMixToMotors(const float motorMix[MAX_SUPPORTED_MOTORS], motorMi
+@@ -417,6 +421,7 @@ static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t
          motor[i] = motorOutput;
      }
  
-+    rl_tools_control();
 +
      // Disarmed mode
      if (!ARMING_FLAG(ARMED)) {
          for (int i = 0; i < mixerRuntime.motorCount; i++) {
-diff --git a/src/platform/SIMULATOR/sitl.c b/src/platform/SIMULATOR/sitl.c
-index 2fc992cb4..3fef54282 100644
---- a/src/platform/SIMULATOR/sitl.c
-+++ b/src/platform/SIMULATOR/sitl.c
-@@ -70,6 +70,7 @@
+@@ -760,6 +765,9 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
+         // Apply the mix to motor endpoints
+         applyMixToMotors(motorMix, activeMixer);
+     }
++    #ifdef RL_TOOLS_BETAFLIGHT_ENABLE
++        rl_tools_control(ARMING_FLAG(ARMED));
++    #endif
+ }
  
- #include "dyad.h"
- #include "udplink.h"
-+#include <rl_tools/policy.h>
- 
- uint32_t SystemCoreClock;
- 
-@@ -204,6 +205,14 @@ static void updateState(const fdm_packet* pkt)
-     setVirtualGPS(latitude, longitude, altitude, speed, speed3D, course);
- #endif
- 
-+    rl_tools_position[0] = pkt->position_xyz[0];
-+    rl_tools_position[1] = pkt->position_xyz[1];
-+    rl_tools_position[2] = pkt->position_xyz[2];
-+
-+    rl_tools_linear_velocity[0] = pkt->velocity_xyz[0];
-+    rl_tools_linear_velocity[1] = pkt->velocity_xyz[1];
-+    rl_tools_linear_velocity[2] = pkt->velocity_xyz[2];
-+
- #if defined(SIMULATOR_IMU_SYNC)
-     imuSetHasNewData(deltaSim*1e6);
-     imuUpdateAttitude(micros());
-@@ -603,6 +612,10 @@ static void pwmCompleteMotorUpdate(void)
-     pwmPkt.motor_speed[0] = motorsPwm[1] / outScale;
-     pwmPkt.motor_speed[1] = motorsPwm[2] / outScale;
-     pwmPkt.motor_speed[2] = motorsPwm[3] / outScale;
-+    pwmPkt.motor_speed[0] = rl_tools_rpms[0] / 2 + 0.5f;
-+    pwmPkt.motor_speed[1] = rl_tools_rpms[1] / 2 + 0.5f;
-+    pwmPkt.motor_speed[2] = rl_tools_rpms[2] / 2 + 0.5f;
-+    pwmPkt.motor_speed[3] = rl_tools_rpms[3] / 2 + 0.5f;
- 
-     // get one "fdm_packet" can only send one "servo_packet"!!
-     if (pthread_mutex_trylock(&updateLock) != 0) return;
+ void mixerSetThrottleAngleCorrection(int correctionValue)

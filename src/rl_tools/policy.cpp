@@ -18,6 +18,10 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wregister"
 #pragma GCC diagnostic ignored "-Wpedantic"
+
+#if defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+#define OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
+#endif
 extern "C" {
     #include "rx/rx.h"
 #ifdef USE_CLI_DEBUG_PRINT
@@ -29,7 +33,7 @@ extern "C" {
 	#include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
-#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
+#ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
 	#include "drivers/light_led.h"
 	#include "drivers/sound_beeper.h"
 #endif
@@ -58,7 +62,11 @@ struct RL_TOOLS_INFERENCE_APPLICATIONS_L2F_CONFIG{
         return rlt::checkpoint::actor::module;
     }
     static constexpr TI ACTION_HISTORY_LENGTH = 1;
+	#ifdef RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473
+    static constexpr TI CONTROL_INTERVAL_INTERMEDIATE_NS = 0.4 * 1000 * 1000; // Adjust based on the Control invocation dt statistics
+	#else
     static constexpr TI CONTROL_INTERVAL_INTERMEDIATE_NS = 0.5 * 1000 * 1000; // Adjust based on the Control invocation dt statistics
+	#endif
     static constexpr TI CONTROL_INTERVAL_NATIVE_NS = 10 * 1000 * 1000; // Training is 100hz
     static constexpr TI TIMING_STATS_NUM_STEPS = 100;
     static constexpr bool FORCE_SYNC_INTERMEDIATE = true;
@@ -95,6 +103,8 @@ T acceleration_integral[3] = {0, 0, 0};
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.05;
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
+static constexpr T MOTOR_FACTOR = 0.5f;
+#elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
 static constexpr T MOTOR_FACTOR = 0.5f;
 #else
 // HUMMINGBIRD
@@ -547,7 +557,7 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FObservation observation;
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
-	#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
+	#ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
 	// ledSet(1, (rl_tools_tick / 100) % 2 == 0);
 	ledSet(1, fabsf(observation.position[0]) > 0.1f);
 	#endif

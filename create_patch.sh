@@ -1,2 +1,2 @@
-cd betaflight
-git diff 83f9de4247e4c7442e1533a6c3ba17deeffaf51f..9fd8ed5750feb6767aae8e9dbe3aa2667f1e6daf -- . > ../embedded.patch
+cd firmware/SAVAGEBEE_PUSHER
+git diff c480a83814cba5168466cb7362c186a703c0e66e..91198d223c5227ed006a5980ac8ae5a831829d75 -- Makefile mk/ src/main/cli src/main/fc/ src/main/flight/ > ../../embedded.patch

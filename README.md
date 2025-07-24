@@ -47,23 +47,30 @@ Run `minimal-l2f.py`
 
 
 
-Using Ubuntu 24.04 this works for me:
-HUMMINGBIRD_F4_V4:
+## Compilation
+Tested on Ubuntu 24.04
+
+### NewBeeDrone Hummingbird v4
+
 ```
 cd firmware/HUMMINGBIRD_F4_V4
 rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```
-SAVAGEBEE_PUSHER:
+
+### NewBeeDrone SavageBee Pusher:
+
 ```
 cd firmware/SAVAGEBEE_PUSHER
 rm -rf obj && make TARGET=SAVAGEBEE_PUSHER RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```
 
+### BetaFPV Meteor75
+```
+cd firmware/BETAFPVG473
+rm -rf obj && make CONFIG=BETAFPVG473 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1 -j16
+```
 
-Build vanilla Hummingbird V4 on Ubuntu 24.04
-```
-rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1 EXTRA_FLAGS="-Wno-error=enum-int-mismatch" -j16
-```
+
 
 
 
@@ -76,3 +83,8 @@ rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIR
 ```
 #undef USE_VTX ~ 25kB savings
 ```
+
+
+### Adding a New Platform
+
+If you want to add a new platform checkout `firmware/BETAFPVG473` because it is based on the mainline repo (`4.5.2`) some of the other firmwares are e.g. based on the NewBeeDrone fork.

@@ -10,3 +10,6 @@
 [submodule "firmware/SAVAGEBEE_PUSHER"]
 	path = firmware/SAVAGEBEE_PUSHER
 	url = https://github.com/rl-tools/betaflight-firmware
+[submodule "firmware/BETAFPVG473"]
+	path = firmware/BETAFPVG473
+	url = https://github.com/betaflight/betaflight.git
