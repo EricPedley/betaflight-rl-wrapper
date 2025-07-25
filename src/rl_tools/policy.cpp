@@ -106,7 +106,7 @@ constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 static constexpr T MOTOR_FACTOR = 0.5f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
-static constexpr T MOTOR_FACTOR = 0.5f;
+static constexpr T MOTOR_FACTOR = 0.4f;
 #else
 // HUMMINGBIRD
 static constexpr T MOTOR_FACTOR = 1.0f;
@@ -207,8 +207,8 @@ enum class TestObservationMode: TI{
 };
 
 // constants
-static constexpr T MAX_POSITION_ERROR = 1;
-static constexpr T MAX_LINEAR_VELOCITY_ERROR = 1;
+static constexpr T MAX_POSITION_ERROR = 0.6;
+static constexpr T MAX_LINEAR_VELOCITY_ERROR = 2.0;
 
 // setpoint
 static T target_position[3] = {0, 0, 0};
@@ -561,8 +561,8 @@ extern "C" void rl_tools_control(bool armed){
 	#ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
 	ledSet(1, fabsf(observation.position[0]) > 0.1f);
 	#endif
-	if(tick_now && rl_tools_tick % 100 == 0){
-		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d",
+	if(tick_now && rl_tools_tick % 1000 == 0){
+		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d acc-z %d",
 			(int)(observation.position[0]*PRINTF_FACTOR),
 			(int)(observation.position[1]*PRINTF_FACTOR),
 			(int)(observation.position[2]*PRINTF_FACTOR),
@@ -575,7 +575,8 @@ extern "C" void rl_tools_control(bool armed){
 			(int)(observation.linear_velocity[2]*PRINTF_FACTOR),
 			(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
 			(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
-			(int)(observation.angular_velocity[2]*PRINTF_FACTOR)
+			(int)(observation.angular_velocity[2]*PRINTF_FACTOR),
+			(int)(acceleration_body[2]*PRINTF_FACTOR)
 		);
 	}
 	timeUs_t pre_inference = micros();
@@ -615,16 +616,27 @@ extern "C" void rl_tools_control(bool armed){
 
 			T clipped_action = clip(action.action[action_i], (T)-1, (T)1);
 			previous_action[action_i] = clipped_action;
-			clipped_action = (clipped_action * 0.5f + 0.5f)*MOTOR_FACTOR; // [0, 1]
-			rl_tools_rpms[action_i] = clipped_action;
-            motor[target_indices[action_i]] = clipped_action * 2000;
+			clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
+			T nerfed_action = clipped_action * MOTOR_FACTOR;
+			rl_tools_rpms[action_i] = nerfed_action;
+            motor[target_indices[action_i]] = nerfed_action * 2000;
 			// motor[target_indices[action_i]] =  (activation_tick % 10) * 200;
 			// motor[target_indices[action_i]] = 1000 + 1000 * (rl_tools_tick % 10000) / 10000.0;
 		}
 		else{
-			// motor[target_indices[action_i]] = 0; // stop the motors
+			#if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+			motor[target_indices[action_i]] = 0; // stop the motors
+			#endif
 		}
     }
+	if(tick_now && rl_tools_tick % 1000 == 0){
+		cliPrintLinef("Action %d %d %d %d", 
+			(int)(motor[0]),
+			(int)(motor[1]),
+			(int)(motor[2]),
+			(int)(motor[3])
+		);
+	}
 	if(tick_now && rl_tools_tick % 1000 == 0){
 		cliPrintLinef("Inference time: %lu us", inference_time);
 		if(intermediate_statii_full){
