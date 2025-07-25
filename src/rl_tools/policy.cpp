@@ -19,9 +19,7 @@
 #pragma GCC diagnostic ignored "-Wregister"
 #pragma GCC diagnostic ignored "-Wpedantic"
 
-#if defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
-#define OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
-#endif
+
 extern "C" {
     #include "rx/rx.h"
 #ifdef USE_CLI_DEBUG_PRINT
@@ -33,6 +31,9 @@ extern "C" {
 	#include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
+#if defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+#define OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
+#endif
 #ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
 	#include "drivers/light_led.h"
 	#include "drivers/sound_beeper.h"
@@ -558,7 +559,6 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
 	#ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
-	// ledSet(1, (rl_tools_tick / 100) % 2 == 0);
 	ledSet(1, fabsf(observation.position[0]) > 0.1f);
 	#endif
 	if(tick_now && rl_tools_tick % 100 == 0){
