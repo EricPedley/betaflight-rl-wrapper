@@ -101,15 +101,19 @@ bool first_run = true;
 bool active = false;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
+#if !defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.03;
+#else
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.05;
+#endif
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 static constexpr T MOTOR_FACTOR = 0.5f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
-static constexpr T MOTOR_FACTOR = 0.4f;
+static constexpr T MOTOR_FACTOR = 0.5f;
 #else
 // HUMMINGBIRD
-static constexpr T MOTOR_FACTOR = 1.0f;
+static constexpr T MOTOR_FACTOR = 0.5f;
 #endif
 
 #ifndef USE_CLI_DEBUG_PRINT
@@ -356,6 +360,7 @@ extern "C" void rl_tools_status(void){
 		cliPrintLinef("RLtools: output[%d]: %d / %d", output_i, (int)(action.action[output_i]*PRINTF_FACTOR), PRINTF_FACTOR);
 	}
 	cliPrintLinef("RLtools: checkpoint test diff: %d / %d", (int)(abs_diff*PRINTF_FACTOR), PRINTF_FACTOR);
+	cliPrintLinef("RLtools: MOTOR_FACTOR: %d / %d", (int)(MOTOR_FACTOR*PRINTF_FACTOR), PRINTF_FACTOR);
 }
 
 T from_channel(T value){
