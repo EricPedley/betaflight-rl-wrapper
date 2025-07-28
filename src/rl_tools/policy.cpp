@@ -31,7 +31,8 @@ extern "C" {
 	#include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
-#if defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+	#include "config.h"
+#if defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
 #define OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
 #endif
 #ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
@@ -101,16 +102,14 @@ bool first_run = true;
 bool active = false;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
-#if !defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) && !defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.03;
-#else
-constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.03;
-#endif
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 static constexpr T MOTOR_FACTOR = 0.45f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
-static constexpr T MOTOR_FACTOR = 0.5f;
+static constexpr T MOTOR_FACTOR = 0.4f;
+#elif defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
+static constexpr T MOTOR_FACTOR = 0.7f;
 #else
 // HUMMINGBIRD
 static constexpr T MOTOR_FACTOR = 0.5f;
@@ -564,10 +563,14 @@ extern "C" void rl_tools_control(bool armed){
 	RLtoolsInferenceApplicationsL2FAction action;
 	observe(observation, TestObservationMode::ACTION_HISTORY);
 	#ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
+	#if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
+	ledSet(0, fabsf(observation.position[0]) > 0.1f);
+	#else
 	ledSet(1, fabsf(observation.position[0]) > 0.1f);
 	#endif
+	#endif
 	if(tick_now && rl_tools_tick % 1000 == 0){
-		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d acc-z %d",
+		cliPrintLinef("OBS: x %d y %d z %d w %d x %d y %d z %d vx %d vy %d vz %d avx %d avy %d avz %d acc-x %d acc-y %d acc-z %d",
 			(int)(observation.position[0]*PRINTF_FACTOR),
 			(int)(observation.position[1]*PRINTF_FACTOR),
 			(int)(observation.position[2]*PRINTF_FACTOR),
@@ -581,6 +584,8 @@ extern "C" void rl_tools_control(bool armed){
 			(int)(observation.angular_velocity[0]*PRINTF_FACTOR),
 			(int)(observation.angular_velocity[1]*PRINTF_FACTOR),
 			(int)(observation.angular_velocity[2]*PRINTF_FACTOR),
+			(int)(acceleration_body[0]*PRINTF_FACTOR),
+			(int)(acceleration_body[1]*PRINTF_FACTOR),
 			(int)(acceleration_body[2]*PRINTF_FACTOR)
 		);
 	}
@@ -624,12 +629,24 @@ extern "C" void rl_tools_control(bool armed){
 			clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
 			T nerfed_action = clipped_action * MOTOR_FACTOR;
 			rl_tools_rpms[action_i] = nerfed_action;
+			#ifdef RL_TOOLS_BETAFLIGHT_TARGET_PAVO20
+			static constexpr T MIN_THROTTLE = 0.2f; // motors turn off otherwise
+			if(nerfed_action < MIN_THROTTLE){
+				nerfed_action = MIN_THROTTLE;
+			}
+			#endif
             motor[target_indices[action_i]] = nerfed_action * 2000;
 			// motor[target_indices[action_i]] =  (activation_tick % 10) * 200;
+			// if(activation_tick % 5 == action_i){
+			// 	motor[target_indices[action_i]] =  (activation_tick % 10) * 200;
+			// }
+			// else{
+			// 	motor[target_indices[action_i]] = 0;
+			// }
 			// motor[target_indices[action_i]] = 1000 + 1000 * (rl_tools_tick % 10000) / 10000.0;
 		}
 		else{
-			#if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+			#if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
 			motor[target_indices[action_i]] = 0; // stop the motors
 			#endif
 		}

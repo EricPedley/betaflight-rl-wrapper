@@ -54,6 +54,7 @@ Tested on Ubuntu 24.04
 
 ```
 cd firmware/HUMMINGBIRD_F4_V4
+make configs
 rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```
 
@@ -61,14 +62,25 @@ rm -rf obj && make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_ROOT=../../../.. GCC_REQUIR
 
 ```
 cd firmware/SAVAGEBEE_PUSHER
+make configs
 rm -rf obj && make TARGET=SAVAGEBEE_PUSHER RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1
 ```
 
 ### BetaFPV Meteor75
 ```
 cd firmware/BETAFPVG473
+make configs
 rm -rf obj && make CONFIG=BETAFPVG473 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1 -j16
 ```
+
+
+### BetaFPV Pavo 20
+```
+cd firmware/PAVO20
+make configs
+rm -rf obj && make CONFIG=BETAFPVF405 RL_TOOLS_ROOT=../../../.. GCC_REQUIRED_VERSION=13.2.1 -j16
+```
+
 
 
 
