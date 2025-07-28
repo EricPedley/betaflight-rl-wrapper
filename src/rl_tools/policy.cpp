@@ -108,12 +108,9 @@ constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.025;
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 static constexpr T MOTOR_FACTOR = 0.45f;
-#error "TRAP"
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
-#error "TRAP"
-static constexpr T MOTOR_FACTOR = 0.4f;
+static constexpr T MOTOR_FACTOR = 1.0f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
-#error "TRAP"
 static constexpr T MOTOR_FACTOR = 0.7f;
 #else
 // HUMMINGBIRD
@@ -331,9 +328,9 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	if(mode >= TestObservationMode::ANGULAR_VELOCITY){
         
         constexpr float GYRO_CONVERSION_FACTOR = (T)M_PI / 180.0f;
-		observation.angular_velocity[0] = gyro.gyroADCf[0] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[1] = gyro.gyroADCf[1] * GYRO_CONVERSION_FACTOR;
-		observation.angular_velocity[2] = gyro.gyroADCf[2] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[0] = gyro.gyroADC[0] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[1] = gyro.gyroADC[1] * GYRO_CONVERSION_FACTOR;
+		observation.angular_velocity[2] = gyro.gyroADC[2] * GYRO_CONVERSION_FACTOR;
 		// printf("Gyro: [%.2f %.2f %.2f] vs [%.2f %.2f %.2f]\n", (double)rl_tools_angular_velocity[0], (double)rl_tools_angular_velocity[1], (double)rl_tools_angular_velocity[2], (double)g[0], (double)g[1], (double)g[2]);
 	}
 	else{
@@ -641,12 +638,12 @@ extern "C" void rl_tools_control(bool armed){
 			clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
 			T nerfed_action = clipped_action * MOTOR_FACTOR;
 			rl_tools_rpms[action_i] = nerfed_action;
-			#ifdef RL_TOOLS_BETAFLIGHT_TARGET_PAVO20
-			static constexpr T MIN_THROTTLE = 0.2f; // motors turn off otherwise
-			if(nerfed_action < MIN_THROTTLE){
-				nerfed_action = MIN_THROTTLE;
-			}
-			#endif
+			// #ifdef RL_TOOLS_BETAFLIGHT_TARGET_PAVO20
+			// static constexpr T MIN_THROTTLE = 0.2f; // motors turn off otherwise
+			// if(nerfed_action < MIN_THROTTLE){
+			// 	nerfed_action = MIN_THROTTLE;
+			// }
+			// #endif
             motor[target_indices[action_i]] = nerfed_action * 2000;
 			// motor[target_indices[action_i]] =  (activation_tick % 10) * 200;
 			// if(activation_tick % 5 == action_i){
