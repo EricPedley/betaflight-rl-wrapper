@@ -31,7 +31,9 @@ extern "C" {
 	#include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
+#if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
 	#include "config.h"
+#endif
 #if defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER) || defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
 #define OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
 #endif
@@ -102,17 +104,20 @@ bool first_run = true;
 bool active = false;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
-constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.03;
+constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.025;
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 static constexpr T MOTOR_FACTOR = 0.45f;
+#error "TRAP"
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
+#error "TRAP"
 static constexpr T MOTOR_FACTOR = 0.4f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
+#error "TRAP"
 static constexpr T MOTOR_FACTOR = 0.7f;
 #else
 // HUMMINGBIRD
-static constexpr T MOTOR_FACTOR = 0.5f;
+static constexpr T MOTOR_FACTOR = 1.0f;
 #endif
 
 #ifndef USE_CLI_DEBUG_PRINT
@@ -471,9 +476,12 @@ extern "C" void rl_tools_control(bool armed){
 
 	T acceleration_body[3];
 	static constexpr T GRAVITY = 9.81;
-	acceleration_body[0] = (acc.accADC[0] / acc.dev.acc_1G) * GRAVITY;
-	acceleration_body[1] = (acc.accADC[1] / acc.dev.acc_1G) * GRAVITY;
-	acceleration_body[2] = (acc.accADC[2] / acc.dev.acc_1G) * GRAVITY;
+	// acceleration_body[0] = (acc.accADC[0] / (T)acc.dev.acc_1G) * GRAVITY;
+	// acceleration_body[1] = (acc.accADC[1] / (T)acc.dev.acc_1G) * GRAVITY;
+	// acceleration_body[2] = (acc.accADC[2] / (T)acc.dev.acc_1G) * GRAVITY;
+	acceleration_body[0] = (-acc.dev.ADCRaw[0] / (T)acc.dev.acc_1G) * GRAVITY;
+	acceleration_body[1] = (-acc.dev.ADCRaw[1] / (T)acc.dev.acc_1G) * GRAVITY;
+	acceleration_body[2] = (acc.dev.ADCRaw[2] / (T)acc.dev.acc_1G) * GRAVITY;
 
 	T q_vec[4], R[9];
 	q_vec[0] = q.w;
@@ -489,6 +497,10 @@ extern "C" void rl_tools_control(bool armed){
 
 	if(diff_set){
 		T dt = diff * 1e-6f;
+		// T time_constant = (activation_tick % 10) * 0.02;
+		// if(time_constant == 0){
+		// 	ACCELERATION_INTEGRAL_DECAY = 0;
+		// }
 		T ACCELERATION_INTEGRAL_DECAY = expf(-dt / ACCELERATION_INTEGRAL_TIMECONSTANT);
 		acceleration_integral[0] = acceleration_integral[0] * ACCELERATION_INTEGRAL_DECAY + acceleration[0] * dt;
 		acceleration_integral[1] = acceleration_integral[1] * ACCELERATION_INTEGRAL_DECAY + acceleration[1] * dt;
