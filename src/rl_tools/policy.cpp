@@ -110,16 +110,7 @@ constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.035;
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.025;
 #endif
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
-#ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
 static constexpr T MOTOR_FACTOR = 1.0f;
-#elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
-static constexpr T MOTOR_FACTOR = 1.0f;
-#elif defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
-static constexpr T MOTOR_FACTOR = 1.0f;
-#else
-// HUMMINGBIRD
-static constexpr T MOTOR_FACTOR = 1.0f;
-#endif
 
 #ifndef USE_CLI_DEBUG_PRINT
 void cliPrintLinef(const char *format, ...){/*noop*/}
