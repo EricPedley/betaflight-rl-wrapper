@@ -104,14 +104,14 @@ bool first_run = true;
 bool active = false;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
-#if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
+#if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.035;
 #else
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.025;
 #endif
 constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
 #ifdef RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER
-static constexpr T MOTOR_FACTOR = 0.45f;
+static constexpr T MOTOR_FACTOR = 1.0f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473)
 static constexpr T MOTOR_FACTOR = 1.0f;
 #elif defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
@@ -332,7 +332,7 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 	if(mode >= TestObservationMode::ANGULAR_VELOCITY){
         
         constexpr float GYRO_CONVERSION_FACTOR = (T)M_PI / 180.0f;
-		#ifdef RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473
+		#if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
 		observation.angular_velocity[0] = gyro.gyroADC[0] * GYRO_CONVERSION_FACTOR;
 		observation.angular_velocity[1] = gyro.gyroADC[1] * GYRO_CONVERSION_FACTOR;
 		observation.angular_velocity[2] = gyro.gyroADC[2] * GYRO_CONVERSION_FACTOR;
@@ -486,7 +486,7 @@ extern "C" void rl_tools_control(bool armed){
 	// acceleration_body[0] = (acc.accADC[0] / (T)acc.dev.acc_1G) * GRAVITY;
 	// acceleration_body[1] = (acc.accADC[1] / (T)acc.dev.acc_1G) * GRAVITY;
 	// acceleration_body[2] = (acc.accADC[2] / (T)acc.dev.acc_1G) * GRAVITY;
-	#ifdef RL_TOOLS_BETAFLIGHT_TARGET_PAVO20
+	#if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
 	// pusher config raw acc flipped
 	acceleration_body[0] = (acc.dev.ADCRaw[1] / (T)acc.dev.acc_1G) * GRAVITY;
 	acceleration_body[1] = (acc.dev.ADCRaw[0] / (T)acc.dev.acc_1G) * GRAVITY;
