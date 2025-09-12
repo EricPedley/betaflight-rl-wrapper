@@ -12,7 +12,7 @@
 	url = https://github.com/rl-tools/betaflight-firmware
 [submodule "firmware/BETAFPVG473"]
 	path = firmware/BETAFPVG473
-	url = https://github.com/betaflight/betaflight.git
+	url = https://github.com/rl-tools/betaflight-firmware.git
 [submodule "firmware/PAVO20"]
 	path = firmware/PAVO20
-	url = https://github.com/betaflight/betaflight.git
+	url = https://github.com/rl-tools/betaflight-firmware.git
