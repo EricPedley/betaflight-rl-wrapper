@@ -1,0 +1,1 @@
+cd firmware/BETAFPVG473 && rm obj/betaflight_4.5.2_SITL.hex && make TARGET=SITL DEBUG=GDB RL_TOOLS_ROOT=../../rl-tools GCC_REQUIRED_VERSION=13.2.1

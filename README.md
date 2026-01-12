@@ -4,7 +4,7 @@
 3. run build commands
 
 `cd firmware/BETAFPVG473 && make CONFIG=BETAFPVG473 RL_TOOLS_ROOT=../../rl-tools GCC_REQUIRED_VERSION=13.2.1`
-`cd firmware/BETAFPVG473 && make TARGET=SITL RL_TOOLS_ROOT=../../rl-tools GCC_REQUIRED_VERSION=13.2.1`
+`cd firmware/BETAFPVG473 && rm obj/betaflight_4.5.2_SITL.hex && make TARGET=SITL DEBUG=GDB RL_TOOLS_ROOT=../../rl-tools GCC_REQUIRED_VERSION=13.2.1`
 4. run SITL (`firmware/BETAFPVG473/obj/main/betaflight_SITL.elf`)
 5. run websockify: `uv run sitl-websockify 127.0.0.1:6761 127.0.0.1:5761`
 6. run simulator: `uv run minimal_l2f.py edgetx`. Replace edgetx with a json filepath if using a game controller.
