@@ -1,12 +1,9 @@
-```
-./build.sh
-```
+# Building
+1. `git submodule init && git submodule update`
+2. Needs rl-tools version 2.1.0. In the example build commands below you need to replace the rl-tools path to where it's installed. Not `src/rl-tools`, needs to be the path to the full repo.
+3
 
-```
-make arm_sdk_install
-make configs
-make TARGET=HUMMINGBIRD_F4_V4 RL_TOOLS_PATH=$(pwd)/../../../..
-```
+
 
 Note: On macOS you might need to increase the memory available to the Docker VM
 
