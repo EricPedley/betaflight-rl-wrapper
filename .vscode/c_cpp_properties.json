@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "SITL",
+            "defines": [
+                "RL_TOOLS_BETAFLIGHT_ENABLE",
+                "SIMULATOR_BUILD",
+                "SITL"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c99",
+            "cppStandard": "c++11",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}
