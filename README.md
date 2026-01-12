@@ -1,8 +1,13 @@
 # Building
 1. `git submodule init && git submodule update`
 2. Needs rl-tools version 2.1.0. In the example build commands below you need to replace the rl-tools path to where it's installed. Not `src/rl-tools`, needs to be the path to the full repo.
-3
+3. run build commands
 
+`cd firmware/BETAFPVG473 && make CONFIG=BETAFPVG473 RL_TOOLS_ROOT=../../rl-tools GCC_REQUIRED_VERSION=13.2.1`
+`cd firmware/BETAFPVG473 && make TARGET=SITL RL_TOOLS_ROOT=../../rl-tools GCC_REQUIRED_VERSION=13.2.1`
+4. run SITL (`firmware/BETAFPVG473/obj/main/betaflight_SITL.elf`)
+5. run websockify: `uv run sitl-websockify 127.0.0.1:6761 127.0.0.1:5761`
+6. run simulator: `uv run minimal_l2f.py edgetx`. Replace edgetx with a json filepath if using a game controller.
 
 
 Note: On macOS you might need to increase the memory available to the Docker VM
