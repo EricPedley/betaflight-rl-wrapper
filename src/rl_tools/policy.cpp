@@ -211,7 +211,7 @@ static constexpr T MAX_POSITION_ERROR = 0.6;
 static constexpr T MAX_LINEAR_VELOCITY_ERROR = 2.0;
 
 // setpoint
-static T target_position[3] = {0, 0, 0};
+static T target_position[3] = {1, 2, 3};
 static T target_orientation[4] = {1, 0, 0, 0};
 static T target_linear_velocity[3] = {0, 0, 0};
 
@@ -412,10 +412,10 @@ extern "C" void rl_tools_control(bool armed){
 		tick_now = true;
 	}
 
-	position[0] = from_channel(rcData[0]);
-	position[1] = from_channel(rcData[1]);
-	position[2] = from_channel(rcData[3]); // the AETR channel map seems to be already applied
-	T yaw = from_channel(rcData[2]);
+	position[0] = from_channel(rcData[8]);
+	position[1] = from_channel(rcData[9]);
+	position[2] = from_channel(rcData[10]); // the AETR channel map seems to be already applied
+	T yaw = from_channel(rcData[11]);
 	#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
 	quaternion q;
 	#else
@@ -468,9 +468,9 @@ extern "C" void rl_tools_control(bool armed){
 		// }
 	}
 
-	linear_velocity[0] = from_channel(rcData[5]);
-	linear_velocity[1] = from_channel(rcData[6]);
-	linear_velocity[2] = from_channel(rcData[7]);
+	linear_velocity[0] = from_channel(rcData[12]);
+	linear_velocity[1] = from_channel(rcData[13]);
+	linear_velocity[2] = from_channel(rcData[14]);
 
 	T acceleration_body[3];
 	static constexpr T GRAVITY = 9.81;
@@ -548,23 +548,23 @@ extern "C" void rl_tools_control(bool armed){
 
 
 
-    T aux1 = rcData[4];
-    bool next_active = aux1 > 1750;
-    if(!active && next_active){
-        reset();
-        cliPrintLinef("Resetting Inference Executor (Recurrent State)");
-		activation_tick += 1;
-    }
-    active = next_active;
+    // T aux1 = rcData[4];
+    // bool next_active = aux1 > 1750;
+    // if(!active && next_active){
+    //     reset();
+    //     cliPrintLinef("Resetting Inference Executor (Recurrent State)");
+	// 	activation_tick += 1;
+    // }
+    // active = next_active;
 
-	T rc_0 = rcData[4];
-	if(prev_rc_0_set){
-		if(prev_rc_0 != rc_0){
-			cliPrintLinef("RC 0 changed from %d/%d to %d/%d", (int)(prev_rc_0*PRINTF_FACTOR), PRINTF_FACTOR, (int)(rc_0*PRINTF_FACTOR), PRINTF_FACTOR);
-		}
-	}
-	prev_rc_0 = rc_0;
-	prev_rc_0_set = true;
+	// T rc_0 = rcData[4];
+	// if(prev_rc_0_set){
+	// 	if(prev_rc_0 != rc_0){
+	// 		cliPrintLinef("RC 0 changed from %d/%d to %d/%d", (int)(prev_rc_0*PRINTF_FACTOR), PRINTF_FACTOR, (int)(rc_0*PRINTF_FACTOR), PRINTF_FACTOR);
+	// 	}
+	// }
+	// prev_rc_0 = rc_0;
+	// prev_rc_0_set = true;
 
 
     // float roll = rcData[0];
