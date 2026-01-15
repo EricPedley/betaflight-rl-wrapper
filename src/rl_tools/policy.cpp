@@ -101,7 +101,7 @@ bool previous_timing_set = false;
 
 
 bool first_run = true;
-bool active = false;
+bool active = true;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
 #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
