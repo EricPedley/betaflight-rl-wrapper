@@ -13,7 +13,7 @@ async def main():
     args = args.parse_args()
     time.sleep(1)
     simulator = L2F(START_SITL=False)
-    gamepad = Gamepad(args.gamepad_mapping, simulator.set_rc_channels)
+    gamepad = Gamepad(args.gamepad_mapping, simulator.set_joystick_channels)
 
     await asyncio.gather(simulator.run(), gamepad.run())
 def sync_main():
