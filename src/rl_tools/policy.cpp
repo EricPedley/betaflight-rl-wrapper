@@ -101,7 +101,7 @@ bool previous_timing_set = false;
 
 
 bool first_run = true;
-bool active = true;
+bool active = false;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
 #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
@@ -198,6 +198,12 @@ void rotate_vector(T R[9], T v[3], T v_rotated[3]){
 	v_rotated[1] = R[3] * v[0] + R[4] * v[1] + R[5] * v[2];
 	v_rotated[2] = R[6] * v[0] + R[7] * v[1] + R[8] * v[2];
 }
+
+T from_channel(T value){
+	static_assert(PWM_RANGE_MIN == 1000, "PWM_RANGE_MIN must be 1000");
+	static_assert(PWM_RANGE_MAX == 2000, "PWM_RANGE_MAX must be 2000");
+	return (value - PWM_RANGE_MIN) / (T)(PWM_RANGE_MAX - PWM_RANGE_MIN) * 2 - 1;
+}
 enum class TestObservationMode: TI{
     ANGULAR_VELOCITY = 0,
     ORIENTATION = 1,
@@ -211,7 +217,7 @@ static constexpr T MAX_POSITION_ERROR = 0.6;
 static constexpr T MAX_LINEAR_VELOCITY_ERROR = 2.0;
 
 // setpoint
-static T target_position[3] = {1, 2, 3};
+static T target_position[3] = {-1, -2, 3};
 static T target_orientation[4] = {1, 0, 0, 0};
 static T target_linear_velocity[3] = {0, 0, 0};
 
@@ -271,10 +277,10 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		#endif
         getQuaternion(&q);
 
-		qr[0] = q.w;
-		qr[1] = q.x;
-		qr[2] = q.y;
-		qr[3] = q.z;
+		qr[0] = from_channel(rcData[15]);
+		qr[1] = from_channel(rcData[12]);
+		qr[2] = from_channel(rcData[13]);
+		qr[3] = from_channel(rcData[14]);
 		// qr = qt * qd
 		// qd = qt' * qr
 		quaternion_multiplication(qtc, qr, qd);
@@ -283,6 +289,7 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		observation.orientation[1] = qd[1];
 		observation.orientation[2] = qd[2];
 		observation.orientation[3] = qd[3];
+		
 	}
 	else{
 		observation.orientation[0] = 1;
@@ -365,11 +372,6 @@ extern "C" void rl_tools_status(void){
 	cliPrintLinef("RLtools: MOTOR_FACTOR: %d / %d", (int)(MOTOR_FACTOR*PRINTF_FACTOR), PRINTF_FACTOR);
 }
 
-T from_channel(T value){
-	static_assert(PWM_RANGE_MIN == 1000, "PWM_RANGE_MIN must be 1000");
-	static_assert(PWM_RANGE_MAX == 2000, "PWM_RANGE_MAX must be 2000");
-	return (value - PWM_RANGE_MIN) / (T)(PWM_RANGE_MAX - PWM_RANGE_MIN) * 2 - 1;
-}
 
 extern "C" void rl_tools_control(bool armed){
     if(first_run){
@@ -412,10 +414,10 @@ extern "C" void rl_tools_control(bool armed){
 		tick_now = true;
 	}
 
-	position[0] = from_channel(rcData[8]);
-	position[1] = from_channel(rcData[9]);
-	position[2] = from_channel(rcData[10]); // the AETR channel map seems to be already applied
-	T yaw = from_channel(rcData[11]);
+	position[0] = from_channel(rcData[6]);
+	position[1] = from_channel(rcData[7]);
+	position[2] = from_channel(rcData[8]);
+	T yaw = 0;//from_channel(rcData[11]);
 	#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
 	quaternion q;
 	#else
@@ -433,7 +435,7 @@ extern "C" void rl_tools_control(bool armed){
 		q_estimator_conj[3] = -q.z/d_e;
 
 		T q_external[4];
-		T pre = yaw/2.0 * M_PI;
+		T pre = yaw/2.0 * M_PI; // why is there an M_PI here????
 		q_external[0] = cosf(pre);
 		q_external[1] = 0;
 		q_external[2] = 0;
@@ -468,9 +470,9 @@ extern "C" void rl_tools_control(bool armed){
 		// }
 	}
 
-	linear_velocity[0] = from_channel(rcData[12]);
-	linear_velocity[1] = from_channel(rcData[13]);
-	linear_velocity[2] = from_channel(rcData[14]);
+	linear_velocity[0] = from_channel(rcData[9]);
+	linear_velocity[1] = from_channel(rcData[10]);
+	linear_velocity[2] = from_channel(rcData[11]);
 
 	T acceleration_body[3];
 	static constexpr T GRAVITY = 9.81;
@@ -548,14 +550,14 @@ extern "C" void rl_tools_control(bool armed){
 
 
 
-    // T aux1 = rcData[4];
-    // bool next_active = aux1 > 1750;
-    // if(!active && next_active){
-    //     reset();
-    //     cliPrintLinef("Resetting Inference Executor (Recurrent State)");
-	// 	activation_tick += 1;
-    // }
-    // active = next_active;
+    T aux1 = rcData[4];
+    bool next_active = aux1 > 1750;
+    if(!active && next_active){
+        reset();
+        cliPrintLinef("Resetting Inference Executor (Recurrent State)");
+		activation_tick += 1;
+    }
+    active = next_active;
 
 	// T rc_0 = rcData[4];
 	// if(prev_rc_0_set){
