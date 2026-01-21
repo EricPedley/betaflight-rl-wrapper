@@ -13,8 +13,6 @@
 
 #include <rl_tools/inference/executor/executor.h>
 
-#include "blob/policy.h"
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wregister"
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -109,7 +107,7 @@ constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.035;
 #else
 constexpr T ACCELERATION_INTEGRAL_TIMECONSTANT = 0.025;
 #endif
-constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = true;
+constexpr bool USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM = false;
 static constexpr T MOTOR_FACTOR = 1.0f;
 
 #ifndef USE_CLI_DEBUG_PRINT
@@ -199,6 +197,25 @@ void rotate_vector(T R[9], T v[3], T v_rotated[3]){
 	v_rotated[2] = R[6] * v[0] + R[7] * v[1] + R[8] * v[2];
 }
 
+template <typename T>
+void rotation_vector_to_quaternion(T rv[3], T q[4]){
+	T angle = sqrtf(rv[0]*rv[0] + rv[1]*rv[1] + rv[2]*rv[2]);
+	if(angle < 1e-6f){
+		// Small angle approximation - identity quaternion
+		q[0] = 1;
+		q[1] = 0;
+		q[2] = 0;
+		q[3] = 0;
+	} else {
+		T half_angle = angle / 2;
+		T s = sinf(half_angle) / angle;
+		q[0] = cosf(half_angle);  // w
+		q[1] = rv[0] * s;          // x
+		q[2] = rv[1] * s;          // y
+		q[3] = rv[2] * s;          // z
+	}
+}
+
 T from_channel(T value){
 	static_assert(PWM_RANGE_MIN == 1000, "PWM_RANGE_MIN must be 1000");
 	static_assert(PWM_RANGE_MAX == 2000, "PWM_RANGE_MAX must be 2000");
@@ -268,7 +285,7 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		qt[2] = target_orientation[2];
 		qt[3] = target_orientation[3];
 		quaternion_conjugate(qt, qtc);
-		quaternion_to_rotation_matrix(qtc, Rt_inv);
+		quaternion_to_rotation_matrix(qtc, Rt_inv); // how did this ever work? This doesn't take into account the current orientation
 
 		#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
         quaternion q;
@@ -277,10 +294,10 @@ void observe(RLtoolsInferenceApplicationsL2FObservation& observation, TestObserv
 		#endif
         getQuaternion(&q);
 
-		qr[0] = from_channel(rcData[15]);
-		qr[1] = from_channel(rcData[12]);
-		qr[2] = from_channel(rcData[13]);
-		qr[3] = from_channel(rcData[14]);
+		qr[0] = q.w;
+		qr[1] = q.x;
+		qr[2] = q.y;
+		qr[3] = q.z;
 		// qr = qt * qd
 		// qd = qt' * qr
 		quaternion_multiplication(qtc, qr, qd);
@@ -372,8 +389,13 @@ extern "C" void rl_tools_status(void){
 	cliPrintLinef("RLtools: MOTOR_FACTOR: %d / %d", (int)(MOTOR_FACTOR*PRINTF_FACTOR), PRINTF_FACTOR);
 }
 
+bool prevArmed=false;
 
 extern "C" void rl_tools_control(bool armed){
+	if(armed && !prevArmed) {
+		reset();
+	}
+	prevArmed = armed;
     if(first_run){
         first_run = false;
         cliPrintLinef("RLtools Inference Applications L2F Control started");
@@ -414,9 +436,9 @@ extern "C" void rl_tools_control(bool armed){
 		tick_now = true;
 	}
 
-	position[0] = from_channel(rcData[6]);
-	position[1] = from_channel(rcData[7]);
-	position[2] = from_channel(rcData[8]);
+	position[0] = from_channel(rcData[7]);
+	position[1] = from_channel(rcData[8]);
+	position[2] = from_channel(rcData[9]);
 	T yaw = 0;//from_channel(rcData[11]);
 	#ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
 	quaternion q;
@@ -426,43 +448,58 @@ extern "C" void rl_tools_control(bool armed){
 	getQuaternion(&q);
 	T d_e = sqrtf(q.w*q.w + q.z*q.z);
 	if(d_e >= 1e-6){
-		// Only do yaw correction if we are not in the yaw singularity
+		// just gets orientation straight from sitl instead of applying yaw correction to betaflight's attitude estimate
+		// // Only do yaw correction if we are not in the yaw singularity
 
-		T q_estimator_conj[4];
-		q_estimator_conj[0] = q.w/d_e;
-		q_estimator_conj[1] = 0;
-		q_estimator_conj[2] = 0;
-		q_estimator_conj[3] = -q.z/d_e;
+		// T q_estimator_conj[4];
+		// q_estimator_conj[0] = q.w/d_e;
+		// q_estimator_conj[1] = 0;
+		// q_estimator_conj[2] = 0;
+		// q_estimator_conj[3] = -q.z/d_e;
 
-		T q_external[4];
-		T pre = yaw/2.0 * M_PI; // why is there an M_PI here????
-		q_external[0] = cosf(pre);
-		q_external[1] = 0;
-		q_external[2] = 0;
-		q_external[3] = sinf(pre);
+		// T q_external[4];
+		// T pre = yaw/2.0 * M_PI; // why is there an M_PI here????
+		// q_external[0] = cosf(pre);
+		// q_external[1] = 0;
+		// q_external[2] = 0;
+		// q_external[3] = sinf(pre);
 
-		T q_yaw_correction[4];
-		quaternion_multiplication(q_external, q_estimator_conj, q_yaw_correction);
-		T q_delta[4];
-		T alpha = 0.02;
-		q_delta[0] = (1.0f - alpha) * 1.0f + alpha * q_yaw_correction[0];
-		q_delta[1] = 0;
-		q_delta[2] = 0;
-		q_delta[3] = (1.0f - alpha) * 0.0f + alpha * q_yaw_correction[3];
+		// T q_yaw_correction[4];
+		// quaternion_multiplication(q_external, q_estimator_conj, q_yaw_correction);
+		// T q_delta[4];
+		// T alpha = 0.02;
+		// q_delta[0] = (1.0f - alpha) * 1.0f + alpha * q_yaw_correction[0];
+		// q_delta[1] = 0;
+		// q_delta[2] = 0;
+		// q_delta[3] = (1.0f - alpha) * 0.0f + alpha * q_yaw_correction[3];
 
-		T q_estimator[4];
-		q_estimator[0] = q.w;
-		q_estimator[1] = q.x;
-		q_estimator[2] = q.y;
-		q_estimator[3] = q.z;
+		// T q_estimator[4];
+		// q_estimator[0] = q.w;
+		// q_estimator[1] = q.x;
+		// q_estimator[2] = q.y;
+		// q_estimator[3] = q.z;
 
-		T temp[4];
-		quaternion_multiplication(q_delta, q_estimator, temp);
-		T normalization_factor = sqrtf(temp[0]*temp[0] + temp[1]*temp[1] + temp[2]*temp[2] + temp[3]*temp[3]);
-		q.w = temp[0] / normalization_factor;
-		q.x = temp[1] / normalization_factor;
-		q.y = temp[2] / normalization_factor;
-		q.z = temp[3] / normalization_factor;
+		// T temp[4];
+		// quaternion_multiplication(q_delta, q_estimator, temp);
+		// T normalization_factor = sqrtf(temp[0]*temp[0] + temp[1]*temp[1] + temp[2]*temp[2] + temp[3]*temp[3]);
+
+		// q.w = temp[0] / normalization_factor;
+		// q.x = temp[1] / normalization_factor;
+		// q.y = temp[2] / normalization_factor;
+		// q.z = temp[3] / normalization_factor;
+
+
+		T rv[3];
+		rv[0] = from_channel(rcData[13]);
+		rv[1] = from_channel(rcData[14]);
+		rv[2] = from_channel(rcData[15]);
+
+		T qr[4];
+		rotation_vector_to_quaternion(rv, qr);
+		q.w = qr[0];
+		q.x = qr[1];
+		q.y = qr[2];
+		q.z = qr[3];
 		imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
 		// imuSetAttitudeQuat(q_external[0], q_external[1], q_external[2], q_external[3]);
 		// if(tick_now && rl_tools_tick % 1000 == 0){
@@ -470,9 +507,9 @@ extern "C" void rl_tools_control(bool armed){
 		// }
 	}
 
-	linear_velocity[0] = from_channel(rcData[9]);
-	linear_velocity[1] = from_channel(rcData[10]);
-	linear_velocity[2] = from_channel(rcData[11]);
+	linear_velocity[0] = from_channel(rcData[10]);
+	linear_velocity[1] = from_channel(rcData[11]);
+	linear_velocity[2] = from_channel(rcData[12]);
 
 	T acceleration_body[3];
 	static constexpr T GRAVITY = 9.81;
