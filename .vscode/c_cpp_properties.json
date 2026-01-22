@@ -5,7 +5,9 @@
             "defines": [
                 "RL_TOOLS_BETAFLIGHT_ENABLE",
                 "SIMULATOR_BUILD",
-                "SITL"
+                "SITL",
+                "USE_BLACKBOX",
+                "USE_BLACKBOX_FILE"
             ],
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c99",

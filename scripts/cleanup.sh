@@ -1,1 +1,1 @@
-pkill -f betaflight_SITL.elf
+pkill -INT betaflight_SITL.elf

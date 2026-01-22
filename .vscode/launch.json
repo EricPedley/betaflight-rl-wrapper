@@ -12,6 +12,8 @@
             "args": [
                 "127.0.0.1"
             ],
+            // "preLaunchTask": "Start Python Agent",
+            // "postDebugTask": "Stop Python Agent",
             "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": false,
