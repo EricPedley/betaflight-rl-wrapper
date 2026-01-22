@@ -205,15 +205,6 @@ extern "C" void rl_tools_control(bool armed){
         cliPrintLinef("Neural Network Policy Control started");
     }
     timeUs_t now_narrow = micros();
-    timeUs_t diff = 0;
-    bool diff_set = false;
-    if(previous_micros_set){
-        if(now_narrow < previous_micros){
-            micros_overflow_counter++;
-        }
-        diff = now_narrow - previous_micros;
-        diff_set = true;
-    }
     previous_micros = now_narrow;
     previous_micros_set = true;
     uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
@@ -270,37 +261,6 @@ extern "C" void rl_tools_control(bool armed){
     q_vec[2] = q.y;
     q_vec[3] = q.z;
     quaternion_to_rotation_matrix(q_vec, R);
-
-    // Handle acceleration integral for feedforward term
-    T acceleration_body[3];
-    static constexpr T GRAVITY = 9.81;
-    #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
-    acceleration_body[0] = (acc.dev.ADCRaw[1] / (T)acc.dev.acc_1G) * GRAVITY;
-    acceleration_body[1] = (acc.dev.ADCRaw[0] / (T)acc.dev.acc_1G) * GRAVITY;
-    acceleration_body[2] = (-acc.dev.ADCRaw[2] / (T)acc.dev.acc_1G) * GRAVITY;
-    #else
-    acceleration_body[0] = (-acc.dev.ADCRaw[0] / (T)acc.dev.acc_1G) * GRAVITY;
-    acceleration_body[1] = (-acc.dev.ADCRaw[1] / (T)acc.dev.acc_1G) * GRAVITY;
-    acceleration_body[2] = (acc.dev.ADCRaw[2] / (T)acc.dev.acc_1G) * GRAVITY;
-    #endif
-
-    T acceleration[3];
-    rotate_vector(R, acceleration_body, acceleration);
-    acceleration[2] -= GRAVITY;
-
-    if(diff_set){
-        T dt = diff * 1e-6f;
-        T ACCELERATION_INTEGRAL_DECAY = expf(-dt / ACCELERATION_INTEGRAL_TIMECONSTANT);
-        acceleration_integral[0] = acceleration_integral[0] * ACCELERATION_INTEGRAL_DECAY + acceleration[0] * dt;
-        acceleration_integral[1] = acceleration_integral[1] * ACCELERATION_INTEGRAL_DECAY + acceleration[1] * dt;
-        acceleration_integral[2] = acceleration_integral[2] * ACCELERATION_INTEGRAL_DECAY + acceleration[2] * dt;
-    }
-
-    if(USE_ACCELERATION_INTEGRAL_FEEDFORWARD_TERM){
-        linear_velocity[0] += acceleration_integral[0];
-        linear_velocity[1] += acceleration_integral[1];
-        linear_velocity[2] += acceleration_integral[2];
-    }
 
     // Check active flag from AUX1 channel
     T aux1 = rcData[4];
