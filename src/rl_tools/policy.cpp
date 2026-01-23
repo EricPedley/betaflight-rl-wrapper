@@ -48,7 +48,7 @@ uint32_t rl_tools_tick = 0;
 
 
 bool first_run = true;
-bool active = false;
+bool active = true;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
 #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
@@ -162,7 +162,7 @@ static constexpr int NN_INPUT_DIM = 12;
 static constexpr int NN_OUTPUT_DIM = 4;
 
 // setpoint (target position in world frame)
-static T target_position[3] = {0, 0, 0};
+static T target_position[3] = {0, 0, 1};
 
 // input (from simulator via RC channels)
 T position[3] = {0, 0, 0};
@@ -262,16 +262,6 @@ extern "C" void rl_tools_control(bool armed){
     q_vec[3] = q.z;
     quaternion_to_rotation_matrix(q_vec, R);
 
-    // Check active flag from AUX1 channel
-    T aux1 = rcData[4];
-    bool next_active = aux1 > 1750;
-    if(!active && next_active){
-        reset();
-        cliPrintLinef("Policy activated");
-        activation_tick += 1;
-    }
-    active = next_active;
-
     // Build neural network input vector (12 elements):
     // [body_linear_velocity(3), body_angular_velocity(3), body_projected_gravity(3), body_position_setpoint(3)]
     float nn_input[NN_INPUT_DIM];
@@ -296,8 +286,7 @@ extern "C" void rl_tools_control(bool armed){
     nn_input[5] = gyro.gyroADCf[2] * GYRO_CONVERSION_FACTOR;
     #endif
 
-    // 3. Body frame projected gravity: R^T * [0, 0, 1] (gravity pointing down in world frame)
-    T gravity_world[3] = {0, 0, 1};
+    T gravity_world[3] = {0, 0, -1};
     T body_gravity[3];
     rotate_vector_transpose(R, gravity_world, body_gravity);
     nn_input[6] = body_gravity[0];
@@ -344,7 +333,6 @@ extern "C" void rl_tools_control(bool armed){
     // Run neural network inference
     timeUs_t pre_inference = micros();
     nn_forward(nn_input, nn_output);
-    auto inference_time = micros() - pre_inference;
 
     // Apply actions to motors
     uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
@@ -352,28 +340,13 @@ extern "C" void rl_tools_control(bool armed){
         if(active){
             T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
             clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
-            T nerfed_action = clipped_action * MOTOR_FACTOR;
-            rl_tools_rpms[action_i] = nerfed_action;
-            motor[target_indices[action_i]] = nerfed_action * 2000;
+            motor[target_indices[action_i]] = 1000 + clipped_action * 1000;
+            // motor[target_indices[action_i]] = (int)((0.5+action_i/8.0f) * 1000);
         }
         else{
             #if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
             motor[target_indices[action_i]] = 0; // stop the motors
             #endif
         }
-    }
-
-    if(tick_now && rl_tools_tick % 1000 == 0){
-        cliPrintLinef("NN Output: %d %d %d %d => Motors: %d %d %d %d",
-            (int)(nn_output[0]*PRINTF_FACTOR),
-            (int)(nn_output[1]*PRINTF_FACTOR),
-            (int)(nn_output[2]*PRINTF_FACTOR),
-            (int)(nn_output[3]*PRINTF_FACTOR),
-            (int)(motor[0]),
-            (int)(motor[1]),
-            (int)(motor[2]),
-            (int)(motor[3])
-        );
-        cliPrintLinef("Inference time: %lu us", inference_time);
     }
 }
