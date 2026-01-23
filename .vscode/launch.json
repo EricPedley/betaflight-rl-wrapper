@@ -5,6 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: simulator",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "minimal-l2f.py",
+            "console": "integratedTerminal",
+            "args": ["edgetx"],
+            "justMyCode": false
+        },
+        {
             "name": "INDIflight SITL",
             "type": "cppdbg",
             "request": "launch",
