@@ -335,7 +335,8 @@ extern "C" void rl_tools_control(bool armed){
     nn_forward(nn_input, nn_output);
 
     // Apply actions to motors
-    uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
+    // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
+    uint8_t target_indices[4] = {1, 0, 3, 2}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
     for(TI action_i = 0; action_i < NN_OUTPUT_DIM; action_i++){
         if(active){
             T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
