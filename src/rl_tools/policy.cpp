@@ -2,6 +2,10 @@
 #include <limits>
 #include <cmath>
 
+#ifdef USE_DSHOT
+#include "drivers/dshot.h"
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -168,7 +172,7 @@ static T target_position[3] = {0, 0, 1};
 T position[3] = {0, 0, 0};
 T linear_velocity[3] = {0, 0, 0};
 
-T rl_tools_rpms[4] = {0, 0, 0, 0};
+float nn_input_rpms[4] = {0, 0, 0, 0};
 
 
 // Rotate vector using transpose of rotation matrix (world to body)
@@ -196,6 +200,12 @@ extern "C" void rl_tools_status(void){
 bool prevArmed=false;
 
 extern "C" void rl_tools_control(bool armed){
+    #ifdef USE_DSHOT
+    for(int motorIndex=0;motorIndex<4;motorIndex++) {
+        nn_input_rpms[motorIndex] = getDshotRpm(motorIndex);
+    }
+    #endif
+    
     if(armed && !prevArmed) {
         reset();
     }
@@ -337,6 +347,7 @@ extern "C" void rl_tools_control(bool armed){
     // Apply actions to motors
     // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
     uint8_t target_indices[4] = {1, 0, 3, 2}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
+    // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
     for(TI action_i = 0; action_i < NN_OUTPUT_DIM; action_i++){
         if(active){
             T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
