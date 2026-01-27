@@ -162,17 +162,19 @@ T from_channel(T value){
 
 // constants
 static constexpr T MOTOR_FACTOR = 1.0f;
-static constexpr int NN_INPUT_DIM = 12;
+static constexpr int NN_INPUT_DIM = 19;
 static constexpr int NN_OUTPUT_DIM = 4;
 
 // setpoint (target position in world frame)
 static T target_position[3] = {0, 0, 1};
+static T target_orientation[4] = {1, 0, 0, 0};
 
 // input (from simulator via RC channels)
 T position[3] = {0, 0, 0};
 T linear_velocity[3] = {0, 0, 0};
 
 float nn_input_rpms[4] = {0, 0, 0, 0};
+float rpm_max = 21670.0;
 
 
 // Rotate vector using transpose of rotation matrix (world to body)
@@ -199,8 +201,83 @@ extern "C" void rl_tools_status(void){
 
 bool prevArmed=false;
 
+// Quaternion conjugate (inverse for unit quaternions)
+// q format: [w, x, y, z]
+template <typename T>
+void quaternion_conjugate(T q[4], T q_conj[4]){
+    q_conj[0] = q[0];   // w unchanged
+    q_conj[1] = -q[1];  // -x
+    q_conj[2] = -q[2];  // -y
+    q_conj[3] = -q[3];  // -z
+}
+
+// Quaternion multiplication: q_out = q1 * q2
+// q format: [w, x, y, z]
+template <typename T>
+void quaternion_multiply(T q1[4], T q2[4], T q_out[4]){
+    T w1 = q1[0], x1 = q1[1], y1 = q1[2], z1 = q1[3];
+    T w2 = q2[0], x2 = q2[1], y2 = q2[2], z2 = q2[3];
+
+    q_out[0] = w1*w2 - x1*x2 - y1*y2 - z1*z2;  // w
+    q_out[1] = w1*x2 + x1*w2 + y1*z2 - z1*y2;  // x
+    q_out[2] = w1*y2 - x1*z2 + y1*w2 + z1*x2;  // y
+    q_out[3] = w1*z2 + x1*y2 - y1*x2 + z1*w2;  // z
+}
+
+// Compute axis-angle error between current and desired quaternions
+// Returns the axis-angle representation (3D vector where magnitude is angle)
+// Result is in the body frame of q_current
+// q format: [w, x, y, z]
+template <typename T>
+void quaternion_error_axis_angle(T q_current[4], T q_desired[4], T axis_angle[3]){
+    // q_error = q_current^-1 * q_desired (error in body frame)
+    T q_current_inv[4];
+    quaternion_conjugate(q_current, q_current_inv);
+
+    T q_error[4];
+    quaternion_multiply(q_current_inv, q_desired, q_error);
+
+    // Ensure we take the shortest path (q and -q represent same rotation)
+    // If w < 0, negate the quaternion
+    if(q_error[0] < 0){
+        q_error[0] = -q_error[0];
+        q_error[1] = -q_error[1];
+        q_error[2] = -q_error[2];
+        q_error[3] = -q_error[3];
+    }
+
+    // Extract axis-angle from quaternion
+    // q = [cos(theta/2), sin(theta/2) * axis]
+    T w = q_error[0];
+    T x = q_error[1];
+    T y = q_error[2];
+    T z = q_error[3];
+
+    // sin(theta/2) = ||xyz||
+    T sin_half_angle = sqrtf(x*x + y*y + z*z);
+
+    // Handle small angles to avoid division by zero
+    if(sin_half_angle < 1e-6f){
+        // Small angle approximation: axis_angle ≈ 2 * xyz
+        axis_angle[0] = 2.0f * x;
+        axis_angle[1] = 2.0f * y;
+        axis_angle[2] = 2.0f * z;
+    } else {
+        // theta = 2 * atan2(sin(theta/2), cos(theta/2))
+        T half_angle = atan2f(sin_half_angle, w);
+        T angle = 2.0f * half_angle;
+
+        // axis = xyz / sin(theta/2), axis_angle = angle * axis
+        T scale = angle / sin_half_angle;
+        axis_angle[0] = scale * x;
+        axis_angle[1] = scale * y;
+        axis_angle[2] = scale * z;
+    }
+}
+
 extern "C" void rl_tools_control(bool armed){
     #ifdef USE_DSHOT
+    // in SITL this flag is off and nn_input_rpms gets set to in target.h
     for(int motorIndex=0;motorIndex<4;motorIndex++) {
         nn_input_rpms[motorIndex] = getDshotRpm(motorIndex);
     }
@@ -314,6 +391,23 @@ extern "C" void rl_tools_control(bool armed){
     nn_input[10] = body_position_setpoint[1];
     nn_input[11] = body_position_setpoint[2];
 
+    // 5. Quaternion error as axis-angle (body frame)
+    T orientation_error[3];
+    quaternion_error_axis_angle(q_vec, target_orientation, orientation_error);
+    nn_input[12] = orientation_error[0];
+    nn_input[13] = orientation_error[1];
+    nn_input[14] = orientation_error[2];
+
+    // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
+    uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
+    // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
+
+    for(int i=0;i<4;i++) {
+        // 6. Normalized RPMs
+        nn_input[15+target_indices[i]] = nn_input_rpms[i] / rpm_max;
+    }
+
+
     #ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
     #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
     ledSet(0, fabsf(body_position_setpoint[0]) > 0.1f);
@@ -345,9 +439,6 @@ extern "C" void rl_tools_control(bool armed){
     nn_forward(nn_input, nn_output);
 
     // Apply actions to motors
-    // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
-    uint8_t target_indices[4] = {1, 0, 3, 2}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
-    // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
     for(TI action_i = 0; action_i < NN_OUTPUT_DIM; action_i++){
         if(active){
             T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
