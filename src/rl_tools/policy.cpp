@@ -398,13 +398,14 @@ extern "C" void rl_tools_control(bool armed){
     nn_input[13] = orientation_error[1];
     nn_input[14] = orientation_error[2];
 
-    // uint8_t target_indices[4] = {1, 0, 2, 3}; // remapping from Crazyflie to Betaflight motor indices
-    uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
+    // uint8_t target_indices[4] = {0, 3, 1, 2}; // remapping from Crazyflie to Betaflight motor indices
+    // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
     // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
 
     for(int i=0;i<4;i++) {
         // 6. Normalized RPMs
-        nn_input[15+target_indices[i]] = nn_input_rpms[i] / rpm_max;
+        // nn_input[15+i] = nn_input_rpms[i] / rpm_max;
+        nn_input[15+i] = nn_input_rpms[i] / rpm_max;
     }
 
 
@@ -443,12 +444,12 @@ extern "C" void rl_tools_control(bool armed){
         if(active){
             T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
             clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
-            motor[target_indices[action_i]] = 1000 + clipped_action * 1000;
+            motor[action_i] = 1000 + clipped_action * 1000;
             // motor[target_indices[action_i]] = (int)((0.5+action_i/8.0f) * 1000);
         }
         else{
             #if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
-            motor[target_indices[action_i]] = 0; // stop the motors
+            motor[action_i] = 0; // stop the motors
             #endif
         }
     }
