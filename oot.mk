@@ -1,6 +1,6 @@
 EXTERNAL_SRC_DIR := ../../src
 
-CXXFLAGS      = $(filter-out -std=gnu17,$(CFLAGS)) -fno-rtti -fno-exceptions -std=c++17 -I $(RL_TOOLS_ROOT)/include -I $(EXTERNAL_SRC_DIR) -Wno-unused-parameter -Wno-unused-variable -Wno-unused-local-typedefs -Wno-double-promotion -DUSE_CLI_DEBUG_PRINT
+CXXFLAGS = $(filter-out -std=gnu17,$(CFLAGS)) -fno-rtti -fno-exceptions -std=c++17 -I $(RL_TOOLS_ROOT)/include -I $(EXTERNAL_SRC_DIR) -Wno-unused-parameter -Wno-unused-variable -Wno-unused-local-typedefs -Wno-double-promotion -Wno-register -DUSE_CLI_DEBUG_PRINT
 
 CXX_SRC = rl_tools/policy.cpp
 C_SRC_EXT = rl_tools/neural_network.c rl_tools/nn_helpers.c

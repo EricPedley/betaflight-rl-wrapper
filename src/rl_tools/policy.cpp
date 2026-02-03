@@ -2,9 +2,6 @@
 #include <limits>
 #include <cmath>
 
-#ifdef USE_DSHOT
-#include "drivers/dshot.h"
-#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -32,6 +29,9 @@ extern "C" {
 #ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
     #include "drivers/light_led.h"
     #include "drivers/sound_beeper.h"
+#endif
+#ifdef USE_DSHOT
+    #include "drivers/dshot.h"
 #endif
     #include "neural_network.h"
     #undef RNG
