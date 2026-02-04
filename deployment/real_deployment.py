@@ -6,7 +6,10 @@ Provides same interface as L2F:
 - run(): Async main loop
 
 Forwards gamepad RC channels (0-7) to ELRS transmitter.
-Optionally populates state channels (7-15) from Vicon motion capture.
+Optionally populates state channels (7-15) from Vicon motion capture:
+- Channels 7-9: Body frame setpoint error (direct NN input)
+- Channels 10-12: Body frame velocity (direct NN input)
+- Channels 13-15: Rotation vector (for quaternion reconstruction)
 """
 
 import asyncio
@@ -44,7 +47,8 @@ class RealDeployment:
     Real-world deployment class that replaces L2F simulator for IRL flights.
 
     Always forwards gamepad channels 0-7 via ELRS.
-    Optionally reads Vicon data to populate state channels 7-15.
+    Optionally reads Vicon data to populate state channels 7-15 with body frame
+    values (setpoint error and velocity) that are direct NN inputs.
     """
 
     def __init__(
@@ -96,6 +100,10 @@ class RealDeployment:
         self._velocity: np.ndarray = np.zeros(3)
         self._position: np.ndarray = np.zeros(3)
         self._rotation_vector: np.ndarray = np.zeros(3)
+
+        # Body frame values (computed from world frame)
+        self._body_setpoint_error: np.ndarray = np.zeros(3)
+        self._body_velocity: np.ndarray = np.zeros(3)
 
         # Status flags
         self._running = False
@@ -256,8 +264,8 @@ class RealDeployment:
         Build 16 RC channels for ELRS transmission.
 
         Channels 0-6:  Gamepad input (PWM converted to CRSF range)
-        Channels 7-9:  Position (x, y, z) scaled to CRSF range
-        Channels 10-12: Velocity (vx, vy, vz) scaled to CRSF range
+        Channels 7-9:  Body frame setpoint error (direct NN input)
+        Channels 10-12: Body frame velocity (direct NN input)
         Channels 13-15: Rotation vector (rx, ry, rz) scaled to CRSF range
         """
         channels = [0] * 16
@@ -268,25 +276,43 @@ class RealDeployment:
             channels[i] = self._pwm_to_crsf(pwm)
 
         if self._vicon_data_valid:
-            # Channels 7-9: Position (meters -> [-1, 1] directly)
-            channels[7] = self._rescale_to_crsf(self._position[0])
-            channels[8] = self._rescale_to_crsf(self._position[1])
-            channels[9] = self._rescale_to_crsf(self._position[2])
+            # Get rotation from rotation vector
+            rotation = R.from_rotvec(self._rotation_vector)
 
-            # Channels 10-12: Velocity (m/s, clamped to [-1, 1])
-            channels[10] = self._rescale_to_crsf(np.clip(self._velocity[0], -1, 1))
-            channels[11] = self._rescale_to_crsf(np.clip(self._velocity[1], -1, 1))
-            channels[12] = self._rescale_to_crsf(np.clip(self._velocity[2], -1, 1))
+            # Compute body frame setpoint error: R^T * (target - position)
+            # Target is [0, 0, 1] (hover at 1m height)
+            target_position = np.array([0.0, 0.0, 1.0])
+            position_error_world = target_position - self._position
+            body_setpoint_error = rotation.inv().apply(position_error_world)
+
+            # Compute body frame velocity: R^T * world_velocity
+            body_velocity = rotation.inv().apply(self._velocity)
+
+            # Channels 7-9: Body frame setpoint error (direct NN input)
+            channels[7] = self._rescale_to_crsf(np.clip(body_setpoint_error[0], -1, 1))
+            channels[8] = self._rescale_to_crsf(np.clip(body_setpoint_error[1], -1, 1))
+            channels[9] = self._rescale_to_crsf(np.clip(body_setpoint_error[2], -1, 1))
+
+            # Channels 10-12: Body frame velocity (direct NN input)
+            channels[10] = self._rescale_to_crsf(np.clip(body_velocity[0], -1, 1))
+            channels[11] = self._rescale_to_crsf(np.clip(body_velocity[1], -1, 1))
+            channels[12] = self._rescale_to_crsf(np.clip(body_velocity[2], -1, 1))
 
             # Channels 13-15: Rotation vector (radians, clamped to [-1, 1])
             channels[13] = self._rescale_to_crsf(np.clip(self._rotation_vector[0], -1, 1))
             channels[14] = self._rescale_to_crsf(np.clip(self._rotation_vector[1], -1, 1))
             channels[15] = self._rescale_to_crsf(np.clip(self._rotation_vector[2], -1, 1))
+
+            # Store body frame values for logging
+            self._body_setpoint_error = body_setpoint_error
+            self._body_velocity = body_velocity
         else:
-            # No valid Vicon data - send neutral values (zero position/velocity/rotation)
+            # No valid Vicon data - send neutral values (zero error/velocity/rotation)
             neutral = self._rescale_to_crsf(0.0)
             for i in range(7, 16):
                 channels[i] = neutral
+            self._body_setpoint_error = np.zeros(3)
+            self._body_velocity = np.zeros(3)
 
         return channels
 
@@ -302,32 +328,44 @@ class RealDeployment:
         rr.log("rc/joystick/aux3", rr.Scalars(float(self.joystick_values[6])))
         rr.log("rc/joystick/aux4", rr.Scalars(float(self.joystick_values[7])))
 
-        # Log encoded RC state channels (11-bit values)
-        rr.log("rc/state/position_x", rr.Scalars(float(channels[7])))
-        rr.log("rc/state/position_y", rr.Scalars(float(channels[8])))
-        rr.log("rc/state/position_z", rr.Scalars(float(channels[9])))
-        rr.log("rc/state/velocity_x", rr.Scalars(float(channels[10])))
-        rr.log("rc/state/velocity_y", rr.Scalars(float(channels[11])))
-        rr.log("rc/state/velocity_z", rr.Scalars(float(channels[12])))
+        # Log encoded RC state channels (11-bit values) with body frame semantics
+        rr.log("rc/state/body_setpoint_error_x", rr.Scalars(float(channels[7])))
+        rr.log("rc/state/body_setpoint_error_y", rr.Scalars(float(channels[8])))
+        rr.log("rc/state/body_setpoint_error_z", rr.Scalars(float(channels[9])))
+        rr.log("rc/state/body_velocity_x", rr.Scalars(float(channels[10])))
+        rr.log("rc/state/body_velocity_y", rr.Scalars(float(channels[11])))
+        rr.log("rc/state/body_velocity_z", rr.Scalars(float(channels[12])))
         rr.log("rc/state/rotation_x", rr.Scalars(float(channels[13])))
         rr.log("rc/state/rotation_y", rr.Scalars(float(channels[14])))
         rr.log("rc/state/rotation_z", rr.Scalars(float(channels[15])))
 
-        # Log physical values (meters, m/s, radians) for easier interpretation
-        rr.log("physical/position", rr.Scalars([
+        # Log world frame values for reference
+        rr.log("world/position", rr.Scalars([
             float(self._position[0]),
             float(self._position[1]),
             float(self._position[2])
         ]))
-        rr.log("physical/velocity", rr.Scalars([
+        rr.log("world/velocity", rr.Scalars([
             float(self._velocity[0]),
             float(self._velocity[1]),
             float(self._velocity[2])
         ]))
-        rr.log("physical/rotation_vector", rr.Scalars([
+        rr.log("world/rotation_vector", rr.Scalars([
             float(self._rotation_vector[0]),
             float(self._rotation_vector[1]),
             float(self._rotation_vector[2])
+        ]))
+
+        # Log body frame values (direct NN inputs)
+        rr.log("body/setpoint_error", rr.Scalars([
+            float(self._body_setpoint_error[0]),
+            float(self._body_setpoint_error[1]),
+            float(self._body_setpoint_error[2])
+        ]))
+        rr.log("body/velocity", rr.Scalars([
+            float(self._body_velocity[0]),
+            float(self._body_velocity[1]),
+            float(self._body_velocity[2])
         ]))
 
         # Log Vicon status
