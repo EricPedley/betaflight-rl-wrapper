@@ -4,3 +4,6 @@
 [submodule "sitl"]
 	path = sitl
 	url = git@github.com:jonas-eschmann/sitl.git
+[submodule "analysis/blackbox-tools"]
+	path = analysis/blackbox-tools
+	url = git@github.com:betaflight/blackbox-tools.git

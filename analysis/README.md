@@ -1,0 +1,2 @@
+betalifght/blackbox-tools should be cloned as a submodule here.
+To set it up, run `make` from inside the repo and it'll generate the binary `obj/blackbox_decode` which takes a .bbl file and spits out a csv.
