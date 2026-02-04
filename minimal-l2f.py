@@ -10,7 +10,7 @@ async def main():
     print(f"PID: {os.getpid()}")
     parser = argparse.ArgumentParser(description="Run the L2F simulator with a gamepad.")
     parser.add_argument("gamepad_mapping", type=str, help="Path to the gamepad mapping JSON file.")
-    parser.add_argument("--parameters", "-p", type=str, default='crazyflie_params.json', help="Path to the quadrotor parameters JSON file.")
+    parser.add_argument("--parameters", "-p", type=str, default='meteor75_parameters.json', help="Path to the quadrotor parameters JSON file.")
     args = parser.parse_args()
     time.sleep(1)
     simulator = L2F(parameters_file=args.parameters)
