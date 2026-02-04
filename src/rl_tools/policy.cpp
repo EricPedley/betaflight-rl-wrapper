@@ -166,13 +166,8 @@ static constexpr T MOTOR_FACTOR = 1.0f;
 static constexpr int NN_INPUT_DIM = 19;
 static constexpr int NN_OUTPUT_DIM = 4;
 
-// setpoint (target position in world frame)
-static T target_position[3] = {0, 0, 1};
+// setpoint (target orientation)
 static T target_orientation[4] = {1, 0, 0, 0};
-
-// input (from simulator via RC channels)
-T position[3] = {0, 0, 0};
-T linear_velocity[3] = {0, 0, 0};
 
 float nn_input_rpms[4] = {0, 0, 0, 0};
 float rpm_max = 21670.0;
@@ -312,10 +307,11 @@ extern "C" void rl_tools_control(bool armed){
         tick_now = true;
     }
 
-    // Read position from RC channels (world frame)
-    position[0] = from_channel(rcData[7]);
-    position[1] = from_channel(rcData[8]);
-    position[2] = from_channel(rcData[9]);
+    // Read body frame setpoint error from RC channels (direct NN input, computed by simulator)
+    T body_setpoint_error[3];
+    body_setpoint_error[0] = from_channel(rcData[7]);
+    body_setpoint_error[1] = from_channel(rcData[8]);
+    body_setpoint_error[2] = from_channel(rcData[9]);
 
     // Read orientation as rotation vector from RC channels and convert to quaternion
     #ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
@@ -337,19 +333,20 @@ extern "C" void rl_tools_control(bool armed){
     q.z = qr[3];
     imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
 
-    // Log position and quaternion to blackbox debug array (only when debug_mode = RL_TOOLS)
-    DEBUG_SET(DEBUG_RL_TOOLS, 0, (int16_t)(position[0] * 1000));   // world_x (mm precision in ±32m range)
-    DEBUG_SET(DEBUG_RL_TOOLS, 1, (int16_t)(position[1] * 1000));   // world_y
-    DEBUG_SET(DEBUG_RL_TOOLS, 2, (int16_t)(position[2] * 1000));   // world_z
-    DEBUG_SET(DEBUG_RL_TOOLS, 3, (int16_t)(q.w * 10000));          // quat_w (0.0001 precision)
-    DEBUG_SET(DEBUG_RL_TOOLS, 4, (int16_t)(q.x * 10000));          // quat_x
-    DEBUG_SET(DEBUG_RL_TOOLS, 5, (int16_t)(q.y * 10000));          // quat_y
-    DEBUG_SET(DEBUG_RL_TOOLS, 6, (int16_t)(q.z * 10000));          // quat_z
+    // Log body setpoint error and quaternion to blackbox debug array (only when debug_mode = RL_TOOLS)
+    DEBUG_SET(DEBUG_RL_TOOLS, 0, (int16_t)(body_setpoint_error[0] * 1000));  // body_setpoint_x
+    DEBUG_SET(DEBUG_RL_TOOLS, 1, (int16_t)(body_setpoint_error[1] * 1000));  // body_setpoint_y
+    DEBUG_SET(DEBUG_RL_TOOLS, 2, (int16_t)(body_setpoint_error[2] * 1000));  // body_setpoint_z
+    DEBUG_SET(DEBUG_RL_TOOLS, 3, (int16_t)(q.w * 10000));                    // quat_w (0.0001 precision)
+    DEBUG_SET(DEBUG_RL_TOOLS, 4, (int16_t)(q.x * 10000));                    // quat_x
+    DEBUG_SET(DEBUG_RL_TOOLS, 5, (int16_t)(q.y * 10000));                    // quat_y
+    DEBUG_SET(DEBUG_RL_TOOLS, 6, (int16_t)(q.z * 10000));                    // quat_z
 
-    // Read linear velocity from RC channels (world frame)
-    linear_velocity[0] = from_channel(rcData[10]);
-    linear_velocity[1] = from_channel(rcData[11]);
-    linear_velocity[2] = from_channel(rcData[12]);
+    // Read body frame velocity from RC channels (direct NN input, computed by simulator)
+    T body_linear_velocity[3];
+    body_linear_velocity[0] = from_channel(rcData[10]);
+    body_linear_velocity[1] = from_channel(rcData[11]);
+    body_linear_velocity[2] = from_channel(rcData[12]);
 
     // Build rotation matrix from quaternion (body to world)
     T q_vec[4], R[9];
@@ -364,9 +361,7 @@ extern "C" void rl_tools_control(bool armed){
     float nn_input[NN_INPUT_DIM];
     float nn_output[NN_OUTPUT_DIM];
 
-    // 1. Body frame linear velocity: R^T * world_velocity
-    T body_linear_velocity[3];
-    rotate_vector_transpose(R, linear_velocity, body_linear_velocity);
+    // 1. Body frame linear velocity: directly from RC channels (already in body frame)
     nn_input[0] = body_linear_velocity[0];
     nn_input[1] = body_linear_velocity[1];
     nn_input[2] = body_linear_velocity[2];
@@ -390,16 +385,10 @@ extern "C" void rl_tools_control(bool armed){
     nn_input[7] = body_gravity[1];
     nn_input[8] = body_gravity[2];
 
-    // 4. Body frame position setpoint: R^T * (target_position - current_position)
-    T position_error_world[3];
-    position_error_world[0] = target_position[0] - position[0];
-    position_error_world[1] = target_position[1] - position[1];
-    position_error_world[2] = target_position[2] - position[2];
-    T body_position_setpoint[3];
-    rotate_vector_transpose(R, position_error_world, body_position_setpoint);
-    nn_input[9] = body_position_setpoint[0];
-    nn_input[10] = body_position_setpoint[1];
-    nn_input[11] = body_position_setpoint[2];
+    // 4. Body frame position setpoint: directly from RC channels (already in body frame)
+    nn_input[9] = body_setpoint_error[0];
+    nn_input[10] = body_setpoint_error[1];
+    nn_input[11] = body_setpoint_error[2];
 
     // 5. Quaternion error as axis-angle (body frame)
     T orientation_error[3];

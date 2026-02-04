@@ -44,26 +44,26 @@ except ImportError:
 
 
 # RC channel mapping based on policy.cpp
-# Channels 7-15 carry state information from simulator to firmware
+# Channels 7-15 carry state information from simulator to firmware (all in body frame)
 RC_CHANNEL_MAPPING = {
-    7: "position_x",      # World frame X position
-    8: "position_y",      # World frame Y position
-    9: "position_z",      # World frame Z position
-    10: "velocity_x",     # World frame X velocity
-    11: "velocity_y",     # World frame Y velocity
-    12: "velocity_z",     # World frame Z velocity
-    13: "rotation_vec_x", # Rotation vector X
-    14: "rotation_vec_y", # Rotation vector Y
-    15: "rotation_vec_z", # Rotation vector Z
+    7: "body_setpoint_error_x",   # Body frame setpoint error X (direct NN input)
+    8: "body_setpoint_error_y",   # Body frame setpoint error Y (direct NN input)
+    9: "body_setpoint_error_z",   # Body frame setpoint error Z (direct NN input)
+    10: "body_velocity_x",        # Body frame velocity X (direct NN input)
+    11: "body_velocity_y",        # Body frame velocity Y (direct NN input)
+    12: "body_velocity_z",        # Body frame velocity Z (direct NN input)
+    13: "rotation_vec_x",         # Rotation vector X (for quaternion)
+    14: "rotation_vec_y",         # Rotation vector Y (for quaternion)
+    15: "rotation_vec_z",         # Rotation vector Z (for quaternion)
 }
 
 # Debug field mapping for RL_TOOLS debug mode
 # These fields are populated in policy.cpp when debug_mode = RL_TOOLS
 RL_TOOLS_DEBUG_MAPPING = {
-    0: ("world_position_x", 0.001),   # Scaled by 1000 in firmware
-    1: ("world_position_y", 0.001),
-    2: ("world_position_z", 0.001),
-    3: ("quaternion_w", 0.0001),      # Scaled by 10000 in firmware
+    0: ("body_setpoint_error_x", 0.001),   # Scaled by 1000 in firmware
+    1: ("body_setpoint_error_y", 0.001),
+    2: ("body_setpoint_error_z", 0.001),
+    3: ("quaternion_w", 0.0001),            # Scaled by 10000 in firmware
     4: ("quaternion_x", 0.0001),
     5: ("quaternion_y", 0.0001),
     6: ("quaternion_z", 0.0001),
