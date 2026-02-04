@@ -155,9 +155,8 @@ void rotation_vector_to_quaternion(T rv[3], T q[4]){
 }
 
 T from_channel(T value){
-    static_assert(PWM_RANGE_MIN == 1000, "PWM_RANGE_MIN must be 1000");
-    static_assert(PWM_RANGE_MAX == 2000, "PWM_RANGE_MAX must be 2000");
-    return (value - PWM_RANGE_MIN) / (T)(PWM_RANGE_MAX - PWM_RANGE_MIN) * 2 - 1;
+    // RC observation channels use 11-bit values [0, 2047]
+    return value * 2.0f / 2047.0f - 1.0f;  // [0, 2047] -> [-1, 1]
 }
 
 // constants
