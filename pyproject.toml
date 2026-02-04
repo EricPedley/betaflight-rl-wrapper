@@ -5,5 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "pufferlib>=3.0.0",
     "sitl>=0.0.5",
+    "torch>=2.10.0",
 ]
