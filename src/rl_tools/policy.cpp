@@ -155,8 +155,9 @@ void rotation_vector_to_quaternion(T rv[3], T q[4]){
 }
 
 T from_channel(T value){
-    // RC observation channels use 11-bit values [0, 2047]
-    return value * 2.0f / 2047.0f - 1.0f;  // [0, 2047] -> [-1, 1]
+    // RC observation channels use PWM values [988, 2012]
+    // This matches real hardware CRSF->PWM conversion
+    return (value - 1500.0f) / 512.0f;  // [988, 2012] -> [-1, 1]
 }
 
 // constants
