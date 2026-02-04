@@ -3,3 +3,4 @@ mav.*
 eeprom.bin
 /**/.DS_Store.python-agent.pid
 blackbox.bbl
+__pycache__
