@@ -20,6 +20,7 @@ extern "C" {
     #include "sensors/acceleration.h"
     #include "flight/imu.h"
     #include "drivers/time.h"
+    #include "build/debug.h"
 #if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
     #include "config.h"
 #endif
@@ -335,6 +336,15 @@ extern "C" void rl_tools_control(bool armed){
     q.y = qr[2];
     q.z = qr[3];
     imuSetAttitudeQuat(q.w, q.x, q.y, q.z);
+
+    // Log position and quaternion to blackbox debug array (only when debug_mode = RL_TOOLS)
+    DEBUG_SET(DEBUG_RL_TOOLS, 0, (int16_t)(position[0] * 1000));   // world_x (mm precision in ±32m range)
+    DEBUG_SET(DEBUG_RL_TOOLS, 1, (int16_t)(position[1] * 1000));   // world_y
+    DEBUG_SET(DEBUG_RL_TOOLS, 2, (int16_t)(position[2] * 1000));   // world_z
+    DEBUG_SET(DEBUG_RL_TOOLS, 3, (int16_t)(q.w * 10000));          // quat_w (0.0001 precision)
+    DEBUG_SET(DEBUG_RL_TOOLS, 4, (int16_t)(q.x * 10000));          // quat_x
+    DEBUG_SET(DEBUG_RL_TOOLS, 5, (int16_t)(q.y * 10000));          // quat_y
+    DEBUG_SET(DEBUG_RL_TOOLS, 6, (int16_t)(q.z * 10000));          // quat_z
 
     // Read linear velocity from RC channels (world frame)
     linear_velocity[0] = from_channel(rcData[10]);

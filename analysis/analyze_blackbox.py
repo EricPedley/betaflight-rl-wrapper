@@ -57,6 +57,18 @@ RC_CHANNEL_MAPPING = {
     15: "rotation_vec_z", # Rotation vector Z
 }
 
+# Debug field mapping for RL_TOOLS debug mode
+# These fields are populated in policy.cpp when debug_mode = RL_TOOLS
+RL_TOOLS_DEBUG_MAPPING = {
+    0: ("world_position_x", 0.001),   # Scaled by 1000 in firmware
+    1: ("world_position_y", 0.001),
+    2: ("world_position_z", 0.001),
+    3: ("quaternion_w", 0.0001),      # Scaled by 10000 in firmware
+    4: ("quaternion_x", 0.0001),
+    5: ("quaternion_y", 0.0001),
+    6: ("quaternion_z", 0.0001),
+}
+
 
 def from_channel(rc_value):
     """
@@ -383,11 +395,38 @@ def log_to_rerun(csv_path):
             if 'energyCumulative (mAh)' in data and data['energyCumulative (mAh)'] is not None:
                 rr.log("battery/energy", rr.Scalars(data['energyCumulative (mAh)']))
 
-            # Log debug values
+            # Log debug values and interpret as RL_TOOLS data if present
+            debug_values = {}
             for i in range(8):
                 key = f'debug[{i}]'
                 if key in data and data[key] is not None:
+                    debug_values[i] = data[key]
                     rr.log(f"debug/{i}", rr.Scalars(data[key]))
+
+            # If we have all 7 RL_TOOLS debug values, interpret semantically
+            if len(debug_values) >= 7:
+                # Log scaled values with semantic names
+                for i, (name, scale) in RL_TOOLS_DEBUG_MAPPING.items():
+                    if i in debug_values:
+                        rr.log(f"rl_state/{name}", rr.Scalars(debug_values[i] * scale))
+
+                # Render drone pose from debug fields
+                if log_drone_pose is not None:
+                    try:
+                        pos = np.array([
+                            debug_values[0] * 0.001,
+                            debug_values[1] * 0.001,
+                            debug_values[2] * 0.001
+                        ])
+                        quat_xyzw = np.array([
+                            debug_values[4] * 0.0001,  # x
+                            debug_values[5] * 0.0001,  # y
+                            debug_values[6] * 0.0001,  # z
+                            debug_values[3] * 0.0001   # w
+                        ])
+                        log_drone_pose(pos, quat_xyzw)
+                    except Exception as e:
+                        pass  # Skip pose logging on error
 
             # Log RSSI
             if 'rssi' in data and data['rssi'] is not None:
