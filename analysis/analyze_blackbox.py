@@ -7,8 +7,7 @@ This script:
 2. Runs blackbox_decode to generate CSV
 3. Logs all fields to Rerun with:
    - Raw RC channel values
-   - Semantic RC channel names and transformed values (as passed to policy)
-   - Drone pose visualization using log_drone_pose
+   - Drone pose visualization from debug values
    - All other blackbox fields
 
 Uses rr.send_columns for efficient batch logging instead of per-row rr.log calls.
@@ -36,30 +35,6 @@ except ImportError as e:
     print("  pip install rerun-sdk numpy scipy")
     sys.exit(1)
 
-# Import log_drone_pose from sitl package
-sys.path.insert(0, str(Path(__file__).parent.parent / "sitl"))
-try:
-    from sitl.logging_utils import log_drone_pose
-except ImportError:
-    print("Warning: Could not import log_drone_pose from sitl package")
-    print("Drone pose visualization will not be available")
-    log_drone_pose = None
-
-
-# RC channel mapping based on policy.cpp
-# Channels 7-15 carry state information from simulator to firmware (all in body frame)
-RC_CHANNEL_MAPPING = {
-    7: "body_setpoint_error_x",   # Body frame setpoint error X (direct NN input)
-    8: "body_setpoint_error_y",   # Body frame setpoint error Y (direct NN input)
-    9: "body_setpoint_error_z",   # Body frame setpoint error Z (direct NN input)
-    10: "body_velocity_x",        # Body frame velocity X (direct NN input)
-    11: "body_velocity_y",        # Body frame velocity Y (direct NN input)
-    12: "body_velocity_z",        # Body frame velocity Z (direct NN input)
-    13: "rotation_vec_x",         # Rotation vector X (for quaternion)
-    14: "rotation_vec_y",         # Rotation vector Y (for quaternion)
-    15: "rotation_vec_z",         # Rotation vector Z (for quaternion)
-}
-
 # Debug field mapping for RL_TOOLS debug mode
 # These fields are populated in policy.cpp when debug_mode = RL_TOOLS
 RL_TOOLS_DEBUG_MAPPING = {
@@ -71,15 +46,6 @@ RL_TOOLS_DEBUG_MAPPING = {
     5: ("quaternion_y", 0.0001),
     6: ("quaternion_z", 0.0001),
 }
-
-
-def from_channel(rc_value):
-    """
-    Convert RC channel value to [-1, 1] range. Works on scalars or numpy arrays.
-    Based on policy.cpp from_channel function.
-    RC channels are typically in range [1000, 2000].
-    """
-    return (rc_value - 1500.0) / 500.0
 
 
 def decode_blackbox(bbl_path, blackbox_decode_path):
@@ -210,81 +176,7 @@ def log_to_rerun(csv_path):
     else:
         loop_iterations = np.arange(N, dtype=np.int64)
 
-    # ===== PHASE 2: Compute derived data (vectorized) =====
-    t_compute_start = time.time()
-
-    has_rc = all(
-        f'rcCommand[{i}]' in data and isinstance(data[f'rcCommand[{i}]'], np.ndarray)
-        for i in range(16)
-    )
-    has_gyro = all(
-        f'gyroADC[{i}]' in data and isinstance(data[f'gyroADC[{i}]'], np.ndarray)
-        for i in range(3)
-    )
-
-    obs_data = {}
-    if has_rc and has_gyro:
-        # Extract RC state channels
-        position = np.column_stack([
-            from_channel(data['rcCommand[7]']),
-            from_channel(data['rcCommand[8]']),
-            from_channel(data['rcCommand[9]']),
-        ])
-        velocity_world = np.column_stack([
-            from_channel(data['rcCommand[10]']),
-            from_channel(data['rcCommand[11]']),
-            from_channel(data['rcCommand[12]']),
-        ])
-        rotation_vec = np.column_stack([
-            from_channel(data['rcCommand[13]']),
-            from_channel(data['rcCommand[14]']),
-            from_channel(data['rcCommand[15]']),
-        ])
-
-        # Batch rotation operations via scipy
-        rotations = Rotation.from_rotvec(rotation_vec)
-        quats_xyzw = rotations.as_quat()  # (N, 4) in [x,y,z,w]
-        quats_wxyz = np.column_stack([
-            quats_xyzw[:, 3], quats_xyzw[:, 0], quats_xyzw[:, 1], quats_xyzw[:, 2]
-        ])  # (N, 4) in [w,x,y,z]
-
-        rot_matrices = rotations.as_matrix()  # (N, 3, 3)
-
-        # Body frame velocity: R^T @ v for each row
-        body_velocity = np.einsum('nji,ni->nj', rot_matrices, velocity_world)
-
-        # Angular velocity from gyro (deg/s -> rad/s)
-        GYRO_CONV = np.pi / 180.0
-        angular_velocity = np.column_stack([
-            data['gyroADC[0]'] * GYRO_CONV,
-            data['gyroADC[1]'] * GYRO_CONV,
-            data['gyroADC[2]'] * GYRO_CONV,
-        ])
-
-        # Body-projected gravity: R^T @ [0, 0, -1]
-        gravity_world = np.array([0.0, 0.0, -1.0])
-        body_gravity = np.einsum('nji,j->ni', rot_matrices, gravity_world)
-
-        # Body frame position setpoint: R^T @ (target - position)
-        target = np.array([0.0, 0.0, 1.0])
-        pos_error_world = target - position
-        body_pos_setpoint = np.einsum('nji,ni->nj', rot_matrices, pos_error_world)
-
-        obs_data = {
-            'position': position,
-            'velocity_world': velocity_world,
-            'body_velocity': body_velocity,
-            'angular_velocity': angular_velocity,
-            'body_gravity': body_gravity,
-            'body_pos_setpoint': body_pos_setpoint,
-            'quats_wxyz': quats_wxyz,
-            'quats_xyzw': quats_xyzw,
-        }
-
-    t_compute = time.time()
-    print(f"Computed observations in {t_compute - t_compute_start:.3f}s")
-
-    # ===== PHASE 3: Send all data to Rerun via send_columns =====
+    # ===== PHASE 2: Send all data to Rerun via send_columns =====
     t_send_start = time.time()
 
     # --- Raw RC channels ---
@@ -292,53 +184,6 @@ def log_to_rerun(csv_path):
         key = f'rcCommand[{i}]'
         if key in data and isinstance(data[key], np.ndarray):
             send_scalar_column(f"rc/raw/channel_{i}", times_sec, loop_iterations, data[key])
-
-    # --- Semantic RC channels ---
-    for ch_num, semantic_name in RC_CHANNEL_MAPPING.items():
-        key = f'rcCommand[{ch_num}]'
-        if key in data and isinstance(data[key], np.ndarray):
-            send_scalar_column(
-                f"rc/semantic/{semantic_name}/raw",
-                times_sec, loop_iterations, data[key],
-            )
-            send_scalar_column(
-                f"rc/semantic/{semantic_name}/transformed",
-                times_sec, loop_iterations, from_channel(data[key]),
-            )
-
-    # --- Policy observations ---
-    if obs_data:
-        for i, axis in enumerate(['x', 'y', 'z']):
-            send_scalar_column(
-                f"policy_obs/body_linear_velocity/{axis}",
-                times_sec, loop_iterations, obs_data['body_velocity'][:, i],
-            )
-            send_scalar_column(
-                f"policy_obs/body_angular_velocity/{axis}",
-                times_sec, loop_iterations, obs_data['angular_velocity'][:, i],
-            )
-            send_scalar_column(
-                f"policy_obs/body_gravity/{axis}",
-                times_sec, loop_iterations, obs_data['body_gravity'][:, i],
-            )
-            send_scalar_column(
-                f"policy_obs/body_position_setpoint/{axis}",
-                times_sec, loop_iterations, obs_data['body_pos_setpoint'][:, i],
-            )
-            send_scalar_column(
-                f"state/position_world/{axis}",
-                times_sec, loop_iterations, obs_data['position'][:, i],
-            )
-            send_scalar_column(
-                f"state/velocity_world/{axis}",
-                times_sec, loop_iterations, obs_data['velocity_world'][:, i],
-            )
-
-        for i, comp in enumerate(['w', 'x', 'y', 'z']):
-            send_scalar_column(
-                f"state/quaternion/{comp}",
-                times_sec, loop_iterations, obs_data['quats_wxyz'][:, i],
-            )
 
     # --- PID values ---
     for axis, axis_name in enumerate(['roll', 'pitch', 'yaw']):
@@ -412,7 +257,7 @@ def log_to_rerun(csv_path):
     t_send = time.time()
     print(f"Sent scalar columns in {t_send - t_send_start:.3f}s")
 
-    # ===== PHASE 4: Per-row logging (text logs, drone pose) =====
+    # ===== PHASE 3: Per-row logging (text logs, drone pose) =====
     t_perrow_start = time.time()
 
     # Flight mode flags (only log on change)
@@ -436,16 +281,11 @@ def log_to_rerun(csv_path):
                 rr.log("status/failsafe", rr.TextLog(str(flag)))
                 prev = flag
 
-    # Drone pose visualization (batched via send_columns)
+    # Drone pose visualization (batched via send_columns from debug values)
     drone_model = "drone/drone_model"
     drone_positions = None
     drone_quaternions = None
 
-    if obs_data:
-        drone_positions = obs_data['position']
-        drone_quaternions = obs_data['quats_xyzw']
-
-    # Debug-based pose overwrites RC-based if both present
     if has_debug:
         drone_positions = np.column_stack([
             data['debug[0]'] * 0.001,
@@ -507,7 +347,6 @@ def log_to_rerun(csv_path):
     t_total = t_perrow - t_start
     print(f"\nCompleted! Logged {N} rows to Rerun.")
     print(f"  CSV loading:      {t_load - t_start:.3f}s")
-    print(f"  Compute obs:      {t_compute - t_compute_start:.3f}s")
     print(f"  send_columns:     {t_send - t_send_start:.3f}s")
     print(f"  Per-row logging:  {t_perrow - t_perrow_start:.3f}s")
     print(f"  Total:            {t_total:.3f}s")
