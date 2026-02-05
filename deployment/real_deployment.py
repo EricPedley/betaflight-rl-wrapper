@@ -9,7 +9,7 @@ Forwards gamepad RC channels (0-7) to ELRS transmitter.
 Optionally populates state channels (7-15) from Vicon motion capture:
 - Channels 7-9: Body frame setpoint error (direct NN input)
 - Channels 10-12: Body frame velocity (direct NN input)
-- Channels 13-15: Rotation vector (for quaternion reconstruction)
+- Channels 13-15: Quaternion xyz components (qw recovered via unit constraint)
 """
 
 import asyncio
@@ -96,7 +96,7 @@ class RealDeployment:
         self._prev_time: Optional[float] = None
         self._velocity: np.ndarray = np.zeros(3)
         self._position: np.ndarray = np.zeros(3)
-        self._rotation_vector: np.ndarray = np.zeros(3)
+        self._quaternion_xyz: np.ndarray = np.zeros(3)
 
         # Body frame values (computed from world frame)
         self._body_setpoint_error: np.ndarray = np.zeros(3)
@@ -120,7 +120,7 @@ class RealDeployment:
             'rc_state': [],
             'world_position': [],
             'world_velocity': [],
-            'world_rotation': [],
+            'world_quaternion_xyz': [],
             'body_setpoint_error': [],
             'body_velocity': [],
             'vicon_valid': [],
@@ -183,14 +183,20 @@ class RealDeployment:
 
             position = np.array([obj[2], obj[3], obj[4]])
 
-            # Orientation: convert Euler XYZ (degrees) to rotation vector
+            # Orientation: convert Euler XYZ (degrees) to quaternion xyz components
             euler_xyz_deg = np.array([obj[5], obj[6], obj[7]])
 
-            # Convert Euler to rotation object using scipy
+            # Convert Euler to quaternion using scipy
             rotation = R.from_euler('xyz', euler_xyz_deg, degrees=True)
-            rotation_vector = rotation.as_rotvec()
+            quat_xyzw = rotation.as_quat()  # scipy returns (x, y, z, w)
 
-            return position, rotation_vector
+            # Convert to (w, x, y, z) and ensure canonical form (w >= 0)
+            quat_wxyz = np.array([quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]])
+            if quat_wxyz[0] < 0:
+                quat_wxyz = -quat_wxyz
+            quaternion_xyz = quat_wxyz[1:4]  # (x, y, z) - always in [-1, 1]
+
+            return position, quaternion_xyz
 
         except Exception as e:
             print(f"Vicon read error: {e}")
@@ -273,7 +279,7 @@ class RealDeployment:
         Channels 0-6:  Gamepad input (PWM converted to CRSF range)
         Channels 7-9:  Body frame setpoint error (direct NN input)
         Channels 10-12: Body frame velocity (direct NN input)
-        Channels 13-15: Rotation vector (rx, ry, rz) scaled to CRSF range
+        Channels 13-15: Quaternion xyz (qx, qy, qz) scaled to CRSF range
         """
         channels = [0] * 16
 
@@ -283,8 +289,12 @@ class RealDeployment:
             channels[i] = self._pwm_to_crsf(pwm)
 
         if self._vicon_data_valid:
-            # Get rotation from rotation vector
-            rotation = R.from_rotvec(self._rotation_vector)
+            # Reconstruct quaternion from xyz (qw = sqrt(1 - x^2 - y^2 - z^2))
+            qxyz = self._quaternion_xyz
+            w_squared = 1.0 - np.sum(qxyz**2)
+            qw = np.sqrt(max(0, w_squared))
+            quat_xyzw = np.array([qxyz[0], qxyz[1], qxyz[2], qw])  # scipy format
+            rotation = R.from_quat(quat_xyzw)
 
             # Compute body frame setpoint error: R^T * (target - position)
             # Target is [0, 0, 1] (hover at 1m height)
@@ -305,10 +315,10 @@ class RealDeployment:
             channels[11] = self._rescale_to_crsf(np.clip(body_velocity[1], -1, 1))
             channels[12] = self._rescale_to_crsf(np.clip(body_velocity[2], -1, 1))
 
-            # Channels 13-15: Rotation vector (radians, clamped to [-1, 1])
-            channels[13] = self._rescale_to_crsf(np.clip(self._rotation_vector[0], -1, 1))
-            channels[14] = self._rescale_to_crsf(np.clip(self._rotation_vector[1], -1, 1))
-            channels[15] = self._rescale_to_crsf(np.clip(self._rotation_vector[2], -1, 1))
+            # Channels 13-15: Quaternion xyz (always in [-1, 1] for unit quaternions)
+            channels[13] = self._rescale_to_crsf(self._quaternion_xyz[0])
+            channels[14] = self._rescale_to_crsf(self._quaternion_xyz[1])
+            channels[15] = self._rescale_to_crsf(self._quaternion_xyz[2])
 
             # Store body frame values for logging
             self._body_setpoint_error = body_setpoint_error
@@ -331,7 +341,7 @@ class RealDeployment:
         self._log_buffer['rc_state'].append([float(channels[i]) for i in range(7, 16)])
         self._log_buffer['world_position'].append(self._position.tolist())
         self._log_buffer['world_velocity'].append(self._velocity.tolist())
-        self._log_buffer['world_rotation'].append(self._rotation_vector.tolist())
+        self._log_buffer['world_quaternion_xyz'].append(self._quaternion_xyz.tolist())
         self._log_buffer['body_setpoint_error'].append(self._body_setpoint_error.tolist())
         self._log_buffer['body_velocity'].append(self._body_velocity.tolist())
         self._log_buffer['vicon_valid'].append(float(self._vicon_data_valid))
@@ -379,12 +389,12 @@ class RealDeployment:
             columns=rr.Scalars.columns(scalars=world_vel),
         )
 
-        # World frame rotation
-        world_rot = np.array(self._log_buffer['world_rotation'])
+        # World frame quaternion xyz
+        world_quat = np.array(self._log_buffer['world_quaternion_xyz'])
         rr.send_columns(
-            "world/rotation_vector",
+            "world/quaternion_xyz",
             indexes=[rr.TimeColumn("time", timestamp=times)],
-            columns=rr.Scalars.columns(scalars=world_rot),
+            columns=rr.Scalars.columns(scalars=world_quat),
         )
 
         # Body frame setpoint error
@@ -470,9 +480,9 @@ class RealDeployment:
                 if vicon_enabled or self.vicon_ip is not None:
                     pose = self._get_vicon_pose()
                     if pose is not None:
-                        position, rotation_vector = pose
+                        position, quaternion_xyz = pose
                         self._position = position
-                        self._rotation_vector = rotation_vector
+                        self._quaternion_xyz = quaternion_xyz
                         self._update_velocity(position, loop_start)
                         self._vicon_data_valid = True
                     else:

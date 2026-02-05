@@ -137,22 +137,19 @@ void rotate_vector(T R[9], T v[3], T v_rotated[3]){
 }
 
 template <typename T>
-void rotation_vector_to_quaternion(T rv[3], T q[4]){
-	T angle = sqrtf(rv[0]*rv[0] + rv[1]*rv[1] + rv[2]*rv[2]);
-	if(angle < 1e-6f){
-		// Small angle approximation - identity quaternion
-		q[0] = 1;
-		q[1] = 0;
-		q[2] = 0;
-		q[3] = 0;
-	} else {
-		T half_angle = angle / 2;
-		T s = sinf(half_angle) / angle;
-		q[0] = cosf(half_angle);  // w
-		q[1] = rv[0] * s;          // x
-		q[2] = rv[1] * s;          // y
-		q[3] = rv[2] * s;          // z
-	}
+void quaternion_xyz_to_quaternion(T qxyz[3], T q[4]){
+	// Reconstruct quaternion from xyz components
+	// Using unit quaternion constraint: w = sqrt(1 - x^2 - y^2 - z^2)
+	// Assumes canonical form where w >= 0 was enforced at transmission
+	T x = qxyz[0];
+	T y = qxyz[1];
+	T z = qxyz[2];
+	T w_squared = 1.0f - x*x - y*y - z*z;
+	T w = (w_squared > 0) ? sqrtf(w_squared) : 0.0f;
+	q[0] = w;  // w
+	q[1] = x;  // x
+	q[2] = y;  // y
+	q[3] = z;  // z
 }
 
 T from_channel(T value){
@@ -313,20 +310,21 @@ extern "C" void rl_tools_control(bool armed){
     body_setpoint_error[1] = from_channel(rcData[8]);
     body_setpoint_error[2] = from_channel(rcData[9]);
 
-    // Read orientation as rotation vector from RC channels and convert to quaternion
+    // Read orientation as quaternion xyz from RC channels and reconstruct full quaternion
+    // qw is recovered using unit quaternion constraint: w = sqrt(1 - x^2 - y^2 - z^2)
     #ifdef RL_TOOLS_BETAFLIGHT_VERSION_4_5
     quaternion q;
     #else
     quaternion_t q;
     #endif
 
-    T rv[3];
-    rv[0] = from_channel(rcData[13]);
-    rv[1] = from_channel(rcData[14]);
-    rv[2] = from_channel(rcData[15]);
+    T qxyz[3];
+    qxyz[0] = from_channel(rcData[13]);
+    qxyz[1] = from_channel(rcData[14]);
+    qxyz[2] = from_channel(rcData[15]);
 
     T qr[4];
-    rotation_vector_to_quaternion(rv, qr);
+    quaternion_xyz_to_quaternion(qxyz, qr);
     q.w = qr[0];
     q.x = qr[1];
     q.y = qr[2];
