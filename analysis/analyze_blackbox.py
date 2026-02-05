@@ -208,12 +208,12 @@ def decode_blackbox(bbl_path, blackbox_decode_path):
         sys.exit(1)
 
     # Find generated CSV file (should have same name with .csv extension)
-    csv_files = list(temp_dir.glob("*.csv"))
+    csv_files = sorted(list(temp_dir.glob("*.csv")))
     if not csv_files:
         print(f"Error: No CSV file generated in {temp_dir}")
         sys.exit(1)
 
-    csv_path = csv_files[0]
+    csv_path = csv_files[-1]
     print(f"Generated CSV: {csv_path}")
 
     return csv_path
