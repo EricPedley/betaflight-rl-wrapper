@@ -60,7 +60,6 @@ class RealDeployment:
         vicon_object_name: Optional[str] = None,
         velocity_filter_alpha: float = 0.3,
         loop_rate_hz: int = 100,
-        vicon_to_world_rotation: Optional[np.ndarray] = None,
     ):
         """
         Initialize the deployment system.
@@ -73,7 +72,6 @@ class RealDeployment:
             vicon_object_name: Name of tracked object in Vicon
             velocity_filter_alpha: Low-pass filter coefficient for velocity (0-1)
             loop_rate_hz: Main loop rate in Hz
-            vicon_to_world_rotation: Optional 3x3 rotation matrix to transform Vicon frame
         """
         self.elrs_port = elrs_port
         self.elrs_baud = elrs_baud
@@ -82,7 +80,6 @@ class RealDeployment:
         self.vicon_object_name = vicon_object_name
         self.velocity_filter_alpha = velocity_filter_alpha
         self.loop_rate_hz = loop_rate_hz
-        self.vicon_to_world_rotation = vicon_to_world_rotation
 
         # Joystick state (8 channels, PWM 1000-2000)
         self.joystick_values = [1500] * 8
@@ -132,6 +129,7 @@ class RealDeployment:
             return False
 
         try:
+            print(f"Attempting vicon connection to {self.vicon_ip}")
             self.vicon_tracker = tools.ObjectTracker(self.vicon_ip)
             self.vicon_connected = True
             print(f"Connected to Vicon at {self.vicon_ip}")
@@ -164,24 +162,14 @@ class RealDeployment:
             # Format: [subject_name, segment_name, x_mm, y_mm, z_mm, euler_x, euler_y, euler_z]
             obj = objects[0]
 
-            # Position: convert mm to meters
-            position = np.array([obj[2], obj[3], obj[4]]) / 1000.0
+            position = np.array([obj[2], obj[3], obj[4]])
 
             # Orientation: convert Euler XYZ (degrees) to rotation vector
             euler_xyz_deg = np.array([obj[5], obj[6], obj[7]])
-            euler_xyz_rad = np.deg2rad(euler_xyz_deg)
 
             # Convert Euler to rotation object using scipy
-            rotation = R.from_euler('xyz', euler_xyz_rad)
+            rotation = R.from_euler('xyz', euler_xyz_deg, degrees=True)
             rotation_vector = rotation.as_rotvec()
-
-            # Apply optional coordinate frame transformation
-            if self.vicon_to_world_rotation is not None:
-                position = self.vicon_to_world_rotation @ position
-                # For rotation vector, rotate the axis while preserving angle
-                rot_matrix = rotation.as_matrix()
-                transformed_rot = self.vicon_to_world_rotation @ rot_matrix
-                rotation_vector = R.from_matrix(transformed_rot).as_rotvec()
 
             return position, rotation_vector
 
