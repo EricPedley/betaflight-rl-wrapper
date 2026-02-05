@@ -276,34 +276,6 @@ extern "C" void rl_tools_control(bool armed){
     }
     #endif
     
-    if(armed && !prevArmed) {
-        reset();
-    }
-    prevArmed = armed;
-    if(first_run){
-        first_run = false;
-        cliPrintLinef("Neural Network Policy Control started");
-    }
-    timeUs_t now_narrow = micros();
-    previous_micros = now_narrow;
-    previous_micros_set = true;
-    uint64_t now = micros_overflow_counter * std::numeric_limits<timeUs_t>::max() + now_narrow;
-
-    bool tick_now = false;
-    if(previous_rl_tools_tick_set){
-        if((now - previous_rl_tools_tick >= 1000)){
-            rl_tools_tick++;
-            previous_rl_tools_tick = now;
-            tick_now = true;
-        }
-    }
-    else{
-        rl_tools_tick = 0;
-        previous_rl_tools_tick_set = true;
-        previous_rl_tools_tick = now;
-        tick_now = true;
-    }
-
     // Read body frame setpoint error from RC channels (direct NN input, computed by simulator)
     T body_setpoint_error[3];
     body_setpoint_error[0] = from_channel(rcData[7]);
@@ -339,6 +311,10 @@ extern "C" void rl_tools_control(bool armed){
     DEBUG_SET(DEBUG_RL_TOOLS, 4, (int16_t)(q.x * 10000));                    // quat_x
     DEBUG_SET(DEBUG_RL_TOOLS, 5, (int16_t)(q.y * 10000));                    // quat_y
     DEBUG_SET(DEBUG_RL_TOOLS, 6, (int16_t)(q.z * 10000));                    // quat_z
+
+    if(!armed) {
+        return;
+    }
 
     // Read body frame velocity from RC channels (direct NN input, computed by simulator)
     T body_linear_velocity[3];
@@ -395,41 +371,10 @@ extern "C" void rl_tools_control(bool armed){
     nn_input[13] = orientation_error[1];
     nn_input[14] = orientation_error[2];
 
-    // uint8_t target_indices[4] = {0, 3, 1, 2}; // remapping from Crazyflie to Betaflight motor indices
-    // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
-    // uint8_t target_indices[4] = {0, 1, 2, 3}; // remapping that works for sim2sim transfer. Not sure why these are not the identity, must've screwed up indexing somewhere in the sysid/training pipeline
 
     for(int i=0;i<4;i++) {
         // 6. Normalized RPMs
-        // nn_input[15+i] = nn_input_rpms[i] / rpm_max;
         nn_input[15+i] = nn_input_rpms[i] / rpm_max;
-    }
-
-
-    #ifdef OVERWRITE_DEFAULT_LED_WITH_POSITION_FEEDBACK
-    #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
-    ledSet(0, fabsf(body_position_setpoint[0]) > 0.1f);
-    #else
-    ledSet(1, fabsf(body_position_setpoint[0]) > 0.1f);
-    #endif
-    #endif
-
-    // Debug logging
-    if(tick_now && rl_tools_tick % 1000 == 0){
-        cliPrintLinef("NN Input: vx%d vy%d vz%d wx%d wy%d wz%d gx%d gy%d gz%d px%d py%d pz%d",
-            (int)(nn_input[0]*PRINTF_FACTOR),
-            (int)(nn_input[1]*PRINTF_FACTOR),
-            (int)(nn_input[2]*PRINTF_FACTOR),
-            (int)(nn_input[3]*PRINTF_FACTOR),
-            (int)(nn_input[4]*PRINTF_FACTOR),
-            (int)(nn_input[5]*PRINTF_FACTOR),
-            (int)(nn_input[6]*PRINTF_FACTOR),
-            (int)(nn_input[7]*PRINTF_FACTOR),
-            (int)(nn_input[8]*PRINTF_FACTOR),
-            (int)(nn_input[9]*PRINTF_FACTOR),
-            (int)(nn_input[10]*PRINTF_FACTOR),
-            (int)(nn_input[11]*PRINTF_FACTOR)
-        );
     }
 
     // Run neural network inference
