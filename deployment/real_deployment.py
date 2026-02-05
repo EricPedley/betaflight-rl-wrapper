@@ -181,13 +181,13 @@ class RealDeployment:
             # Format: [subject_name, segment_name, x_mm, y_mm, z_mm, euler_x, euler_y, euler_z]
             obj = objects[0]
 
-            position = np.array([obj[2], obj[3], obj[4]])
+            position = np.array([obj[2], obj[3], obj[4]])/1000
 
             # Orientation: convert Euler XYZ (degrees) to quaternion xyz components
-            euler_xyz_deg = np.array([obj[5], obj[6], obj[7]])
+            euler_xyz = np.array([obj[5], obj[6], obj[7]])
 
             # Convert Euler to quaternion using scipy
-            rotation = R.from_euler('xyz', euler_xyz_deg, degrees=True)
+            rotation = R.from_euler('XYZ', euler_xyz)
             quat_xyzw = rotation.as_quat()  # scipy returns (x, y, z, w)
 
             # Convert to (w, x, y, z) and ensure canonical form (w >= 0)
@@ -335,6 +335,23 @@ class RealDeployment:
 
     def _log_to_rerun(self, channels: list, current_time: float) -> None:
         """Buffer data for Rerun visualization, flush when buffer is full."""
+        # Log vicon pose as Transform3D with axes (not batched, logged directly)
+        if self._vicon_data_valid:
+            rr.set_time("time", timestamp=current_time)
+            # Reconstruct full quaternion from xyz components
+            qxyz = self._quaternion_xyz
+            w_squared = 1.0 - np.sum(qxyz**2)
+            qw = np.sqrt(max(0, w_squared))
+            quat_xyzw = [qxyz[0], qxyz[1], qxyz[2], qw]
+            rr.log(
+                "world/vicon_pose",
+                rr.Transform3D(
+                    translation=self._position,
+                    quaternion=quat_xyzw,
+                ),
+                rr.TransformAxes3D(0.3),
+            )
+
         # Append to buffers
         self._log_buffer['time'].append(current_time)
         self._log_buffer['joystick'].append([float(v) for v in self.joystick_values])
