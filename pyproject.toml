@@ -6,8 +6,5 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "elrs>=0.0.7",
-    "pufferlib>=3.0.0",
     "pyvicon-datastream>=0.2.4",
-    "sitl>=0.0.5",
-    "torch>=2.10.0",
 ]
