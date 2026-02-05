@@ -107,6 +107,25 @@ class RealDeployment:
         self._vicon_data_valid = False
         self._last_reconnect_attempt = 0.0
 
+        # Rerun logging buffer (for send_columns batching)
+        self._log_buffer_size = 50  # Flush every 50 samples (0.5s at 100Hz)
+        self._log_buffer: dict = {}
+        self._reset_log_buffer()
+
+    def _reset_log_buffer(self) -> None:
+        """Reset the logging buffer for send_columns batching."""
+        self._log_buffer = {
+            'time': [],
+            'joystick': [],
+            'rc_state': [],
+            'world_position': [],
+            'world_velocity': [],
+            'world_rotation': [],
+            'body_setpoint_error': [],
+            'body_velocity': [],
+            'vicon_valid': [],
+        }
+
     def set_joystick_channels(self, joystick_values: list) -> None:
         """
         Callback interface matching L2F simulator.
@@ -304,60 +323,95 @@ class RealDeployment:
 
         return channels
 
-    def _log_to_rerun(self, channels: list) -> None:
-        """Log data to Rerun for visualization."""
-        # Log joystick values (PWM 1000-2000)
-        rr.log("rc/joystick/roll", rr.Scalars(float(self.joystick_values[0])))
-        rr.log("rc/joystick/pitch", rr.Scalars(float(self.joystick_values[1])))
-        rr.log("rc/joystick/throttle", rr.Scalars(float(self.joystick_values[2])))
-        rr.log("rc/joystick/yaw", rr.Scalars(float(self.joystick_values[3])))
-        rr.log("rc/joystick/arm", rr.Scalars(float(self.joystick_values[4])))
-        rr.log("rc/joystick/mode", rr.Scalars(float(self.joystick_values[5])))
-        rr.log("rc/joystick/aux3", rr.Scalars(float(self.joystick_values[6])))
-        rr.log("rc/joystick/aux4", rr.Scalars(float(self.joystick_values[7])))
+    def _log_to_rerun(self, channels: list, current_time: float) -> None:
+        """Buffer data for Rerun visualization, flush when buffer is full."""
+        # Append to buffers
+        self._log_buffer['time'].append(current_time)
+        self._log_buffer['joystick'].append([float(v) for v in self.joystick_values])
+        self._log_buffer['rc_state'].append([float(channels[i]) for i in range(7, 16)])
+        self._log_buffer['world_position'].append(self._position.tolist())
+        self._log_buffer['world_velocity'].append(self._velocity.tolist())
+        self._log_buffer['world_rotation'].append(self._rotation_vector.tolist())
+        self._log_buffer['body_setpoint_error'].append(self._body_setpoint_error.tolist())
+        self._log_buffer['body_velocity'].append(self._body_velocity.tolist())
+        self._log_buffer['vicon_valid'].append(float(self._vicon_data_valid))
 
-        # Log encoded RC state channels (11-bit values) with body frame semantics
-        rr.log("rc/state/body_setpoint_error_x", rr.Scalars(float(channels[7])))
-        rr.log("rc/state/body_setpoint_error_y", rr.Scalars(float(channels[8])))
-        rr.log("rc/state/body_setpoint_error_z", rr.Scalars(float(channels[9])))
-        rr.log("rc/state/body_velocity_x", rr.Scalars(float(channels[10])))
-        rr.log("rc/state/body_velocity_y", rr.Scalars(float(channels[11])))
-        rr.log("rc/state/body_velocity_z", rr.Scalars(float(channels[12])))
-        rr.log("rc/state/rotation_x", rr.Scalars(float(channels[13])))
-        rr.log("rc/state/rotation_y", rr.Scalars(float(channels[14])))
-        rr.log("rc/state/rotation_z", rr.Scalars(float(channels[15])))
+        # Flush when buffer is full
+        if len(self._log_buffer['time']) >= self._log_buffer_size:
+            self._flush_log_buffer()
 
-        # Log world frame values for reference
-        rr.log("world/position", rr.Scalars([
-            float(self._position[0]),
-            float(self._position[1]),
-            float(self._position[2])
-        ]))
-        rr.log("world/velocity", rr.Scalars([
-            float(self._velocity[0]),
-            float(self._velocity[1]),
-            float(self._velocity[2])
-        ]))
-        rr.log("world/rotation_vector", rr.Scalars([
-            float(self._rotation_vector[0]),
-            float(self._rotation_vector[1]),
-            float(self._rotation_vector[2])
-        ]))
+    def _flush_log_buffer(self) -> None:
+        """Flush buffered data to Rerun using send_columns for efficiency."""
+        if not self._log_buffer['time']:
+            return
 
-        # Log body frame values (direct NN inputs)
-        rr.log("body/setpoint_error", rr.Scalars([
-            float(self._body_setpoint_error[0]),
-            float(self._body_setpoint_error[1]),
-            float(self._body_setpoint_error[2])
-        ]))
-        rr.log("body/velocity", rr.Scalars([
-            float(self._body_velocity[0]),
-            float(self._body_velocity[1]),
-            float(self._body_velocity[2])
-        ]))
+        times = np.array(self._log_buffer['time'])
 
-        # Log Vicon status
-        rr.log("status/vicon_valid", rr.Scalars(float(self._vicon_data_valid)))
+        # Joystick channels (8 values: roll, pitch, throttle, yaw, arm, mode, aux3, aux4)
+        joystick = np.array(self._log_buffer['joystick'])
+        rr.send_columns(
+            "rc/joystick",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=joystick),
+        )
+
+        # RC state channels (9 values: body_setpoint_error xyz, body_velocity xyz, rotation xyz)
+        rc_state = np.array(self._log_buffer['rc_state'])
+        rr.send_columns(
+            "rc/state",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=rc_state),
+        )
+
+        # World frame position
+        world_pos = np.array(self._log_buffer['world_position'])
+        rr.send_columns(
+            "world/position",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=world_pos),
+        )
+
+        # World frame velocity
+        world_vel = np.array(self._log_buffer['world_velocity'])
+        rr.send_columns(
+            "world/velocity",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=world_vel),
+        )
+
+        # World frame rotation
+        world_rot = np.array(self._log_buffer['world_rotation'])
+        rr.send_columns(
+            "world/rotation_vector",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=world_rot),
+        )
+
+        # Body frame setpoint error
+        body_err = np.array(self._log_buffer['body_setpoint_error'])
+        rr.send_columns(
+            "body/setpoint_error",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=body_err),
+        )
+
+        # Body frame velocity
+        body_vel = np.array(self._log_buffer['body_velocity'])
+        rr.send_columns(
+            "body/velocity",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=body_vel),
+        )
+
+        # Vicon valid status
+        vicon_valid = np.array(self._log_buffer['vicon_valid'])
+        rr.send_columns(
+            "status/vicon_valid",
+            indexes=[rr.TimeColumn("time", timestamp=times)],
+            columns=rr.Scalars.columns(scalars=vicon_valid),
+        )
+
+        self._reset_log_buffer()
 
     def _telemetry_callback(self, ftype: int, decoded) -> None:
         """Handle ELRS telemetry data."""
@@ -431,8 +485,8 @@ class RealDeployment:
                 # 2. Build RC channels
                 channels = self._build_rc_channels()
 
-                # 3. Log to Rerun
-                self._log_to_rerun(channels)
+                # 3. Log to Rerun (buffered)
+                self._log_to_rerun(channels, loop_start)
 
                 # 4. Send to ELRS
                 self.elrs.set_channels(channels)
@@ -445,6 +499,8 @@ class RealDeployment:
         except asyncio.CancelledError:
             print("RealDeployment loop cancelled")
         finally:
+            # Flush any remaining buffered log data
+            self._flush_log_buffer()
             self._running = False
             if self.elrs:
                 self.elrs.stop()

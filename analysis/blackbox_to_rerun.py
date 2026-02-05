@@ -2,8 +2,10 @@
 """
 Script to visualize flight controller CSV logs using Rerun.
 
+Uses rr.send_columns for efficient batch logging instead of per-row rr.log calls.
+
 Usage:
-    python log_to_rerun.py <path_to_csv_file>
+    python blackbox_to_rerun.py <path_to_csv_file>
 """
 
 import argparse
@@ -23,33 +25,66 @@ except ImportError as e:
 
 def parse_csv_header(header_row):
     """Parse the CSV header to extract column names."""
-    # Clean up column names (remove spaces, handle special characters)
     columns = [col.strip() for col in header_row]
     return columns
 
 
 def convert_value(value_str):
-    """Convert a string value to appropriate numeric type or keep as string."""
+    """Convert a string value to appropriate numeric type."""
     value_str = value_str.strip()
-
-    # Handle empty values
     if not value_str:
-        return None
-
-    # Try to convert to number
+        return np.nan
     try:
-        # Try integer first
         if '.' not in value_str:
             return int(value_str)
         else:
             return float(value_str)
     except ValueError:
-        # Keep as string (for flags, status values, etc.)
-        return value_str
+        return np.nan
+
+
+def load_csv_data(csv_path):
+    """Load CSV file into a dictionary of numpy arrays."""
+    with open(csv_path, 'r') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        columns = parse_csv_header(header)
+
+        # Initialize lists for each column
+        data = {col: [] for col in columns}
+
+        for row in reader:
+            if len(row) != len(columns):
+                continue
+            for col_name, value_str in zip(columns, row):
+                data[col_name].append(convert_value(value_str))
+
+    # Convert to numpy arrays
+    for col in data:
+        data[col] = np.array(data[col])
+
+    return data
+
+
+def send_scalar_columns(entity_path, times, values, timeline_name="time"):
+    """Send scalar data using send_columns."""
+    # Handle NaN values by masking
+    valid_mask = ~np.isnan(values) if values.ndim == 1 else ~np.any(np.isnan(values), axis=1)
+    if not np.any(valid_mask):
+        return
+
+    valid_times = times[valid_mask]
+    valid_values = values[valid_mask]
+
+    rr.send_columns(
+        entity_path,
+        indexes=[rr.TimeColumn(timeline_name, timestamp=valid_times)],
+        columns=rr.Scalars.columns(scalars=valid_values),
+    )
 
 
 def log_to_rerun(csv_path):
-    """Read CSV file and log all data to Rerun."""
+    """Read CSV file and log all data to Rerun using send_columns."""
     csv_path = Path(csv_path)
 
     if not csv_path.exists():
@@ -60,148 +95,123 @@ def log_to_rerun(csv_path):
     rr.init("flight_log_viewer", spawn=True)
 
     print(f"Loading log file: {csv_path}")
+    data = load_csv_data(csv_path)
+    row_count = len(data.get('time (us)', []))
+    print(f"Loaded {row_count} rows")
 
-    with open(csv_path, 'r') as f:
-        reader = csv.reader(f)
+    # Get time column (convert microseconds to seconds)
+    if 'time (us)' not in data:
+        print("Error: No 'time (us)' column found")
+        sys.exit(1)
 
-        # Read header
-        header = next(reader)
-        columns = parse_csv_header(header)
+    times = data['time (us)'] * 1e-6  # Convert to seconds
 
-        print(f"Found {len(columns)} columns")
+    print("Sending data to Rerun...")
 
-        # Track numeric columns for time series
-        numeric_columns = set()
+    # PID P values
+    if all(f'axisP[{i}]' in data for i in range(3)):
+        values = np.column_stack([data[f'axisP[{i}]'] for i in range(3)])
+        send_scalar_columns("pid/P", times, values)
 
-        # Read and log data
-        row_count = 0
-        for row in reader:
-            if len(row) != len(columns):
-                continue  # Skip malformed rows
+    # PID I values
+    if all(f'axisI[{i}]' in data for i in range(3)):
+        values = np.column_stack([data[f'axisI[{i}]'] for i in range(3)])
+        send_scalar_columns("pid/I", times, values)
 
-            # Create dictionary of column -> value
-            data = {}
-            for col_name, value_str in zip(columns, row):
-                value = convert_value(value_str)
-                data[col_name] = value
+    # PID D values (only roll and pitch typically)
+    if all(f'axisD[{i}]' in data for i in range(2)):
+        values = np.column_stack([data[f'axisD[{i}]'] for i in range(2)])
+        send_scalar_columns("pid/D", times, values)
 
-                # Track which columns have numeric data
-                if isinstance(value, (int, float)):
-                    numeric_columns.add(col_name)
+    # PID F values
+    if all(f'axisF[{i}]' in data for i in range(3)):
+        values = np.column_stack([data[f'axisF[{i}]'] for i in range(3)])
+        send_scalar_columns("pid/F", times, values)
 
-            # Use time as the timeline
-            time_us = data.get('time (us)')
-            if time_us is None:
-                continue
+    # Gyro ADC
+    if all(f'gyroADC[{i}]' in data for i in range(3)):
+        values = np.column_stack([data[f'gyroADC[{i}]'] for i in range(3)])
+        send_scalar_columns("sensors/gyro_adc", times, values)
 
-            # Set timeline
-            rr.set_time("loop_iteration", sequence=data.get('loopIteration', row_count))
-            rr.set_time("time", timestamp=time_us * 1e-6)  # Convert microseconds to seconds
+    # Gyro unfiltered
+    if all(f'gyroUnfilt[{i}]' in data for i in range(3)):
+        values = np.column_stack([data[f'gyroUnfilt[{i}]'] for i in range(3)])
+        send_scalar_columns("sensors/gyro_unfilt", times, values)
 
-            # Log PID values
-            if all(key in data for key in ['axisP[0]', 'axisP[1]', 'axisP[2]']):
-                rr.log("pid/P/roll", rr.Scalars(data['axisP[0]']))
-                rr.log("pid/P/pitch", rr.Scalars(data['axisP[1]']))
-                rr.log("pid/P/yaw", rr.Scalars(data['axisP[2]']))
+    # Accelerometer
+    if all(f'accSmooth[{i}]' in data for i in range(3)):
+        values = np.column_stack([data[f'accSmooth[{i}]'] for i in range(3)])
+        send_scalar_columns("sensors/acc", times, values)
 
-            if all(key in data for key in ['axisI[0]', 'axisI[1]', 'axisI[2]']):
-                rr.log("pid/I/roll", rr.Scalars(data['axisI[0]']))
-                rr.log("pid/I/pitch", rr.Scalars(data['axisI[1]']))
-                rr.log("pid/I/yaw", rr.Scalars(data['axisI[2]']))
+    # RC commands
+    if all(f'rcCommand[{i}]' in data for i in range(4)):
+        values = np.column_stack([data[f'rcCommand[{i}]'] for i in range(4)])
+        send_scalar_columns("rc/command", times, values)
 
-            if all(key in data for key in ['axisD[0]', 'axisD[1]']):
-                rr.log("pid/D/roll", rr.Scalars(data['axisD[0]']))
-                rr.log("pid/D/pitch", rr.Scalars(data['axisD[1]']))
+    # Setpoints
+    if all(f'setpoint[{i}]' in data for i in range(4)):
+        values = np.column_stack([data[f'setpoint[{i}]'] for i in range(4)])
+        send_scalar_columns("setpoint", times, values)
 
-            if all(key in data for key in ['axisF[0]', 'axisF[1]', 'axisF[2]']):
-                rr.log("pid/F/roll", rr.Scalars(data['axisF[0]']))
-                rr.log("pid/F/pitch", rr.Scalars(data['axisF[1]']))
-                rr.log("pid/F/yaw", rr.Scalars(data['axisF[2]']))
+    # Motor outputs
+    if all(f'motor[{i}]' in data for i in range(4)):
+        values = np.column_stack([data[f'motor[{i}]'] for i in range(4)])
+        send_scalar_columns("motors/output", times, values)
 
-            # Log gyro data
-            if all(key in data for key in ['gyroADC[0]', 'gyroADC[1]', 'gyroADC[2]']):
-                rr.log("sensors/gyro_adc/roll", rr.Scalars(data['gyroADC[0]']))
-                rr.log("sensors/gyro_adc/pitch", rr.Scalars(data['gyroADC[1]']))
-                rr.log("sensors/gyro_adc/yaw", rr.Scalars(data['gyroADC[2]']))
+    # eRPM
+    if all(f'eRPM[{i}]' in data for i in range(4)):
+        values = np.column_stack([data[f'eRPM[{i}]'] for i in range(4)])
+        send_scalar_columns("motors/erpm", times, values)
 
-            if all(key in data for key in ['gyroUnfilt[0]', 'gyroUnfilt[1]', 'gyroUnfilt[2]']):
-                rr.log("sensors/gyro_unfilt/roll", rr.Scalars(data['gyroUnfilt[0]']))
-                rr.log("sensors/gyro_unfilt/pitch", rr.Scalars(data['gyroUnfilt[1]']))
-                rr.log("sensors/gyro_unfilt/yaw", rr.Scalars(data['gyroUnfilt[2]']))
+    # Battery voltage
+    if 'vbatLatest (V)' in data:
+        send_scalar_columns("battery/voltage", times, data['vbatLatest (V)'])
 
-            # Log accelerometer data
-            if all(key in data for key in ['accSmooth[0]', 'accSmooth[1]', 'accSmooth[2]']):
-                rr.log("sensors/acc/x", rr.Scalars(data['accSmooth[0]']))
-                rr.log("sensors/acc/y", rr.Scalars(data['accSmooth[1]']))
-                rr.log("sensors/acc/z", rr.Scalars(data['accSmooth[2]']))
+    # Battery current
+    if 'amperageLatest (A)' in data:
+        send_scalar_columns("battery/current", times, data['amperageLatest (A)'])
 
-            # Log RC commands
-            if all(key in data for key in ['rcCommand[0]', 'rcCommand[1]', 'rcCommand[2]', 'rcCommand[3]']):
-                rr.log("rc/command/roll", rr.Scalars(data['rcCommand[0]']))
-                rr.log("rc/command/pitch", rr.Scalars(data['rcCommand[1]']))
-                rr.log("rc/command/yaw", rr.Scalars(data['rcCommand[2]']))
-                rr.log("rc/command/throttle", rr.Scalars(data['rcCommand[3]']))
+    # Battery energy
+    if 'energyCumulative (mAh)' in data:
+        send_scalar_columns("battery/energy", times, data['energyCumulative (mAh)'])
 
-            # Log setpoints
-            if all(key in data for key in ['setpoint[0]', 'setpoint[1]', 'setpoint[2]', 'setpoint[3]']):
-                rr.log("setpoint/roll", rr.Scalars(data['setpoint[0]']))
-                rr.log("setpoint/pitch", rr.Scalars(data['setpoint[1]']))
-                rr.log("setpoint/yaw", rr.Scalars(data['setpoint[2]']))
-                rr.log("setpoint/throttle", rr.Scalars(data['setpoint[3]']))
+    # RSSI
+    if 'rssi' in data:
+        send_scalar_columns("radio/rssi", times, data['rssi'])
 
-            # Log motor outputs
-            if all(key in data for key in ['motor[0]', 'motor[1]', 'motor[2]', 'motor[3]']):
-                rr.log("motors/output/m1", rr.Scalars(data['motor[0]']))
-                rr.log("motors/output/m2", rr.Scalars(data['motor[1]']))
-                rr.log("motors/output/m3", rr.Scalars(data['motor[2]']))
-                rr.log("motors/output/m4", rr.Scalars(data['motor[3]']))
+    # Debug values
+    debug_cols = [f'debug[{i}]' for i in range(8) if f'debug[{i}]' in data]
+    if debug_cols:
+        values = np.column_stack([data[col] for col in debug_cols])
+        send_scalar_columns("debug", times, values)
 
-            # Log eRPM
-            if all(key in data for key in ['eRPM[0]', 'eRPM[1]', 'eRPM[2]', 'eRPM[3]']):
-                rr.log("motors/erpm/m1", rr.Scalars(data['eRPM[0]']))
-                rr.log("motors/erpm/m2", rr.Scalars(data['eRPM[1]']))
-                rr.log("motors/erpm/m3", rr.Scalars(data['eRPM[2]']))
-                rr.log("motors/erpm/m4", rr.Scalars(data['eRPM[3]']))
+    # RC data channels (for NN state observation)
+    rc_data_cols = [f'rcData[{i}]' for i in range(7, 16) if f'rcData[{i}]' in data]
+    if rc_data_cols:
+        values = np.column_stack([data[col] for col in rc_data_cols])
+        send_scalar_columns("rc/data", times, values)
 
-            # Log battery voltage and current
-            if 'vbatLatest (V)' in data and data['vbatLatest (V)'] is not None:
-                rr.log("battery/voltage", rr.Scalars(data['vbatLatest (V)']))
+    # Flight mode and failsafe as text logs (these need per-row logging)
+    if 'flightModeFlags (flags)' in data:
+        mode_data = data['flightModeFlags (flags)']
+        # Only log when mode changes to reduce overhead
+        prev_mode = None
+        for i, mode in enumerate(mode_data):
+            if mode != prev_mode and not np.isnan(mode) if isinstance(mode, float) else mode is not None:
+                rr.set_time("time", timestamp=times[i])
+                rr.log("status/flight_mode", rr.TextLog(str(int(mode) if isinstance(mode, float) else mode)))
+                prev_mode = mode
 
-            if 'amperageLatest (A)' in data and data['amperageLatest (A)'] is not None:
-                rr.log("battery/current", rr.Scalars(data['amperageLatest (A)']))
-
-            if 'energyCumulative (mAh)' in data and data['energyCumulative (mAh)'] is not None:
-                rr.log("battery/energy", rr.Scalars(data['energyCumulative (mAh)']))
-
-            # Log RSSI
-            if 'rssi' in data and data['rssi'] is not None:
-                rr.log("radio/rssi", rr.Scalars(data['rssi']))
-
-            # Log debug values
-            for i in range(8):
-                key = f'debug[{i}]'
-                if key in data and data[key] is not None:
-                    rr.log(f"debug/{i}", rr.Scalars(data[key]))
-
-            # Log status/flags (as text)
-            if 'flightModeFlags (flags)' in data:
-                mode = data['flightModeFlags (flags)']
-                if mode is not None:
-                    rr.log("status/flight_mode", rr.TextLog(str(mode)))
-
-            if 'failsafePhase (flags)' in data:
-                failsafe = data['failsafePhase (flags)']
-                if failsafe is not None:
-                    rr.log("status/failsafe", rr.TextLog(str(failsafe)))
-
-            row_count += 1
-
-            # Progress indicator
-            if row_count % 1000 == 0:
-                print(f"Processed {row_count} rows...")
+    if 'failsafePhase (flags)' in data:
+        failsafe_data = data['failsafePhase (flags)']
+        prev_failsafe = None
+        for i, failsafe in enumerate(failsafe_data):
+            if failsafe != prev_failsafe and not np.isnan(failsafe) if isinstance(failsafe, float) else failsafe is not None:
+                rr.set_time("time", timestamp=times[i])
+                rr.log("status/failsafe", rr.TextLog(str(int(failsafe) if isinstance(failsafe, float) else failsafe)))
+                prev_failsafe = failsafe
 
     print(f"\nCompleted! Logged {row_count} rows to Rerun.")
-    print(f"Numeric columns found: {len(numeric_columns)}")
 
 
 def main():
