@@ -11,6 +11,8 @@ This script:
    - Drone pose visualization using log_drone_pose
    - All other blackbox fields
 
+Uses rr.send_columns for efficient batch logging instead of per-row rr.log calls.
+
 Usage:
     python analyze_blackbox.py <path_to_bbl_file>
 """
@@ -21,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 try:
@@ -72,106 +75,11 @@ RL_TOOLS_DEBUG_MAPPING = {
 
 def from_channel(rc_value):
     """
-    Convert RC channel value to [-1, 1] range.
+    Convert RC channel value to [-1, 1] range. Works on scalars or numpy arrays.
     Based on policy.cpp from_channel function.
     RC channels are typically in range [1000, 2000].
     """
     return (rc_value - 1500.0) / 500.0
-
-
-def rotation_vector_to_quaternion(rv):
-    """
-    Convert rotation vector to quaternion [w, x, y, z].
-    Using scipy's Rotation class.
-    """
-    angle = np.linalg.norm(rv)
-    if angle < 1e-8:
-        return np.array([1.0, 0.0, 0.0, 0.0])
-    axis = rv / angle
-    rot = Rotation.from_rotvec(axis * angle)
-    quat = rot.as_quat()  # Returns [x, y, z, w]
-    return np.array([quat[3], quat[0], quat[1], quat[2]])  # Convert to [w, x, y, z]
-
-
-def quaternion_to_rotation_matrix(q):
-    """
-    Convert quaternion [w, x, y, z] to 3x3 rotation matrix (body to world).
-    """
-    rot = Rotation.from_quat([q[1], q[2], q[3], q[0]])  # scipy expects [x, y, z, w]
-    return rot.as_matrix()
-
-
-def transform_to_body_frame(world_vec, rotation_matrix):
-    """
-    Transform a world frame vector to body frame using R^T.
-    """
-    return rotation_matrix.T @ world_vec
-
-
-def compute_policy_observations(rc_data, gyro_adc):
-    """
-    Compute the 12-dimensional observation vector that would be passed to the policy.
-    Based on policy.cpp lines 352-392.
-
-    Returns:
-        dict with policy observation components
-    """
-    # Extract state from RC channels
-    position = np.array([
-        from_channel(rc_data.get(7, 1500)),
-        from_channel(rc_data.get(8, 1500)),
-        from_channel(rc_data.get(9, 1500)),
-    ])
-
-    velocity_world = np.array([
-        from_channel(rc_data.get(10, 1500)),
-        from_channel(rc_data.get(11, 1500)),
-        from_channel(rc_data.get(12, 1500)),
-    ])
-
-    rotation_vec = np.array([
-        from_channel(rc_data.get(13, 1500)),
-        from_channel(rc_data.get(14, 1500)),
-        from_channel(rc_data.get(15, 1500)),
-    ])
-
-    # Convert rotation vector to quaternion
-    quat = rotation_vector_to_quaternion(rotation_vec)
-
-    # Get rotation matrix (body to world)
-    R = quaternion_to_rotation_matrix(quat)
-
-    # Transform velocity to body frame
-    body_linear_velocity = transform_to_body_frame(velocity_world, R)
-
-    # Body frame angular velocity from gyro (convert deg/s to rad/s)
-    GYRO_CONVERSION_FACTOR = np.pi / 180.0
-    body_angular_velocity = np.array([
-        gyro_adc.get(0, 0.0) * GYRO_CONVERSION_FACTOR,
-        gyro_adc.get(1, 0.0) * GYRO_CONVERSION_FACTOR,
-        gyro_adc.get(2, 0.0) * GYRO_CONVERSION_FACTOR,
-    ])
-
-    # Body-projected gravity vector
-    gravity_world = np.array([0.0, 0.0, -1.0])
-    body_gravity = transform_to_body_frame(gravity_world, R)
-
-    # Body frame position setpoint (assuming target is [0, 0, 1])
-    target_position = np.array([0.0, 0.0, 1.0])
-    position_error_world = target_position - position
-    body_position_setpoint = transform_to_body_frame(position_error_world, R)
-
-    return {
-        'position_world': position,
-        'velocity_world': velocity_world,
-        'velocity_body': body_linear_velocity,
-        'rotation_vector': rotation_vec,
-        'quaternion': quat,
-        'rotation_matrix': R,
-        'angular_velocity_body': body_angular_velocity,
-        'gravity_body': body_gravity,
-        'position_setpoint_body': body_position_setpoint,
-    }
 
 
 def decode_blackbox(bbl_path, blackbox_decode_path):
@@ -219,9 +127,60 @@ def decode_blackbox(bbl_path, blackbox_decode_path):
     return csv_path
 
 
+def load_csv_data(csv_path):
+    """Load CSV file into a dictionary of numpy arrays (float64) or lists (strings)."""
+    with open(csv_path, 'r') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        columns = [col.strip() for col in header]
+
+        raw_data = {col: [] for col in columns}
+
+        for row in reader:
+            if len(row) != len(columns):
+                continue
+            for col_name, value_str in zip(columns, row):
+                value_str = value_str.strip()
+                if not value_str:
+                    raw_data[col_name].append(np.nan)
+                else:
+                    try:
+                        raw_data[col_name].append(float(value_str))
+                    except ValueError:
+                        raw_data[col_name].append(value_str)
+
+    # Convert to numpy arrays where possible
+    data = {}
+    for col in raw_data:
+        vals = raw_data[col]
+        # Check if any value is a string (not just the first)
+        has_strings = any(isinstance(v, str) for v in vals)
+        if has_strings:
+            data[col] = vals  # Keep as list for string columns
+        else:
+            data[col] = np.array(vals, dtype=np.float64)
+
+    return data
+
+
+def send_scalar_column(entity_path, times_sec, loop_iterations, values):
+    """Send a 1D scalar column using send_columns, filtering NaN values."""
+    valid_mask = ~np.isnan(values)
+    if not np.any(valid_mask):
+        return
+    rr.send_columns(
+        entity_path,
+        indexes=[
+            rr.TimeColumn("time_us", timestamp=times_sec[valid_mask]),
+            rr.TimeColumn("loop_iteration", sequence=loop_iterations[valid_mask]),
+        ],
+        columns=rr.Scalars.columns(scalars=values[valid_mask]),
+    )
+
+
 def log_to_rerun(csv_path):
     """
-    Read decoded CSV and log all fields to Rerun.
+    Read decoded CSV and log all fields to Rerun using send_columns for speed.
     """
     csv_path = Path(csv_path)
 
@@ -230,219 +189,328 @@ def log_to_rerun(csv_path):
 
     print(f"Loading CSV: {csv_path}")
 
-    with open(csv_path, 'r') as f:
-        reader = csv.reader(f)
+    # ===== PHASE 1: Load CSV data =====
+    t_start = time.time()
+    data = load_csv_data(csv_path)
+    t_load = time.time()
 
-        # Read header
-        header = next(reader)
-        columns = [col.strip() for col in header]
+    time_us = data.get('time (us)')
+    if time_us is None or not isinstance(time_us, np.ndarray):
+        print("Error: No 'time (us)' column found")
+        sys.exit(1)
 
-        print(f"Found {len(columns)} columns")
+    N = len(time_us)
+    print(f"Loaded {N} rows in {t_load - t_start:.3f}s")
 
-        # Process each row
-        row_count = 0
-        for row in reader:
-            if len(row) != len(columns):
-                continue
+    # Build timeline arrays
+    times_sec = time_us * 1e-6
+    loop_iter_col = data.get('loopIteration')
+    if loop_iter_col is not None and isinstance(loop_iter_col, np.ndarray):
+        loop_iterations = loop_iter_col.astype(np.int64)
+    else:
+        loop_iterations = np.arange(N, dtype=np.int64)
 
-            # Parse row data
-            data = {}
-            for col_name, value_str in zip(columns, row):
-                value_str = value_str.strip()
-                if not value_str:
-                    data[col_name] = None
-                else:
-                    try:
-                        if '.' in value_str:
-                            data[col_name] = float(value_str)
-                        else:
-                            data[col_name] = int(value_str)
-                    except ValueError:
-                        data[col_name] = value_str
+    # ===== PHASE 2: Compute derived data (vectorized) =====
+    t_compute_start = time.time()
 
-            # Set timeline
-            time_us = data.get('time (us)')
-            if time_us is None:
-                continue
+    has_rc = all(
+        f'rcCommand[{i}]' in data and isinstance(data[f'rcCommand[{i}]'], np.ndarray)
+        for i in range(16)
+    )
+    has_gyro = all(
+        f'gyroADC[{i}]' in data and isinstance(data[f'gyroADC[{i}]'], np.ndarray)
+        for i in range(3)
+    )
 
-            rr.set_time("time_us", timestamp=time_us * 1e-6)
-            rr.set_time("loop_iteration", sequence=data.get('loopIteration', row_count))
+    obs_data = {}
+    if has_rc and has_gyro:
+        # Extract RC state channels
+        position = np.column_stack([
+            from_channel(data['rcCommand[7]']),
+            from_channel(data['rcCommand[8]']),
+            from_channel(data['rcCommand[9]']),
+        ])
+        velocity_world = np.column_stack([
+            from_channel(data['rcCommand[10]']),
+            from_channel(data['rcCommand[11]']),
+            from_channel(data['rcCommand[12]']),
+        ])
+        rotation_vec = np.column_stack([
+            from_channel(data['rcCommand[13]']),
+            from_channel(data['rcCommand[14]']),
+            from_channel(data['rcCommand[15]']),
+        ])
 
-            # ========== RAW RC CHANNELS ==========
-            rc_data = {}
-            for i in range(18):  # Betaflight typically has up to 18 RC channels
-                key = f'rcCommand[{i}]'
-                if key in data and data[key] is not None:
-                    rr.log(f"rc/raw/channel_{i}", rr.Scalars(data[key]))
-                    rc_data[i] = data[key]
+        # Batch rotation operations via scipy
+        rotations = Rotation.from_rotvec(rotation_vec)
+        quats_xyzw = rotations.as_quat()  # (N, 4) in [x,y,z,w]
+        quats_wxyz = np.column_stack([
+            quats_xyzw[:, 3], quats_xyzw[:, 0], quats_xyzw[:, 1], quats_xyzw[:, 2]
+        ])  # (N, 4) in [w,x,y,z]
 
-            # ========== SEMANTIC RC CHANNELS ==========
-            # Log the semantic meaning of RC channels 7-15 (state from simulator)
-            for ch_num, semantic_name in RC_CHANNEL_MAPPING.items():
-                key = f'rcCommand[{ch_num}]'
-                if key in data and data[key] is not None:
-                    raw_value = data[key]
-                    transformed_value = from_channel(raw_value)
+        rot_matrices = rotations.as_matrix()  # (N, 3, 3)
 
-                    rr.log(f"rc/semantic/{semantic_name}/raw", rr.Scalars(raw_value))
-                    rr.log(f"rc/semantic/{semantic_name}/transformed", rr.Scalars(transformed_value))
+        # Body frame velocity: R^T @ v for each row
+        body_velocity = np.einsum('nji,ni->nj', rot_matrices, velocity_world)
 
-            # ========== POLICY OBSERVATIONS ==========
-            # Compute the full observation vector as it would be passed to the policy
-            gyro_adc = {}
-            for i in range(3):
-                key = f'gyroADC[{i}]'
-                if key in data and data[key] is not None:
-                    gyro_adc[i] = data[key]
+        # Angular velocity from gyro (deg/s -> rad/s)
+        GYRO_CONV = np.pi / 180.0
+        angular_velocity = np.column_stack([
+            data['gyroADC[0]'] * GYRO_CONV,
+            data['gyroADC[1]'] * GYRO_CONV,
+            data['gyroADC[2]'] * GYRO_CONV,
+        ])
 
-            if len(rc_data) >= 16 and len(gyro_adc) == 3:
-                try:
-                    obs = compute_policy_observations(rc_data, gyro_adc)
+        # Body-projected gravity: R^T @ [0, 0, -1]
+        gravity_world = np.array([0.0, 0.0, -1.0])
+        body_gravity = np.einsum('nji,j->ni', rot_matrices, gravity_world)
 
-                    # Log body frame velocity (NN input [0:3])
-                    rr.log("policy_obs/body_linear_velocity/x", rr.Scalars(obs['velocity_body'][0]))
-                    rr.log("policy_obs/body_linear_velocity/y", rr.Scalars(obs['velocity_body'][1]))
-                    rr.log("policy_obs/body_linear_velocity/z", rr.Scalars(obs['velocity_body'][2]))
+        # Body frame position setpoint: R^T @ (target - position)
+        target = np.array([0.0, 0.0, 1.0])
+        pos_error_world = target - position
+        body_pos_setpoint = np.einsum('nji,ni->nj', rot_matrices, pos_error_world)
 
-                    # Log body frame angular velocity (NN input [3:6])
-                    rr.log("policy_obs/body_angular_velocity/x", rr.Scalars(obs['angular_velocity_body'][0]))
-                    rr.log("policy_obs/body_angular_velocity/y", rr.Scalars(obs['angular_velocity_body'][1]))
-                    rr.log("policy_obs/body_angular_velocity/z", rr.Scalars(obs['angular_velocity_body'][2]))
+        obs_data = {
+            'position': position,
+            'velocity_world': velocity_world,
+            'body_velocity': body_velocity,
+            'angular_velocity': angular_velocity,
+            'body_gravity': body_gravity,
+            'body_pos_setpoint': body_pos_setpoint,
+            'quats_wxyz': quats_wxyz,
+            'quats_xyzw': quats_xyzw,
+        }
 
-                    # Log body-projected gravity (NN input [6:9])
-                    rr.log("policy_obs/body_gravity/x", rr.Scalars(obs['gravity_body'][0]))
-                    rr.log("policy_obs/body_gravity/y", rr.Scalars(obs['gravity_body'][1]))
-                    rr.log("policy_obs/body_gravity/z", rr.Scalars(obs['gravity_body'][2]))
+    t_compute = time.time()
+    print(f"Computed observations in {t_compute - t_compute_start:.3f}s")
 
-                    # Log body frame position setpoint (NN input [9:12])
-                    rr.log("policy_obs/body_position_setpoint/x", rr.Scalars(obs['position_setpoint_body'][0]))
-                    rr.log("policy_obs/body_position_setpoint/y", rr.Scalars(obs['position_setpoint_body'][1]))
-                    rr.log("policy_obs/body_position_setpoint/z", rr.Scalars(obs['position_setpoint_body'][2]))
+    # ===== PHASE 3: Send all data to Rerun via send_columns =====
+    t_send_start = time.time()
 
-                    # Log world frame data for reference
-                    rr.log("state/position_world/x", rr.Scalars(obs['position_world'][0]))
-                    rr.log("state/position_world/y", rr.Scalars(obs['position_world'][1]))
-                    rr.log("state/position_world/z", rr.Scalars(obs['position_world'][2]))
+    # --- Raw RC channels ---
+    for i in range(18):
+        key = f'rcCommand[{i}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(f"rc/raw/channel_{i}", times_sec, loop_iterations, data[key])
 
-                    rr.log("state/velocity_world/x", rr.Scalars(obs['velocity_world'][0]))
-                    rr.log("state/velocity_world/y", rr.Scalars(obs['velocity_world'][1]))
-                    rr.log("state/velocity_world/z", rr.Scalars(obs['velocity_world'][2]))
+    # --- Semantic RC channels ---
+    for ch_num, semantic_name in RC_CHANNEL_MAPPING.items():
+        key = f'rcCommand[{ch_num}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(
+                f"rc/semantic/{semantic_name}/raw",
+                times_sec, loop_iterations, data[key],
+            )
+            send_scalar_column(
+                f"rc/semantic/{semantic_name}/transformed",
+                times_sec, loop_iterations, from_channel(data[key]),
+            )
 
-                    # Log quaternion
-                    rr.log("state/quaternion/w", rr.Scalars(obs['quaternion'][0]))
-                    rr.log("state/quaternion/x", rr.Scalars(obs['quaternion'][1]))
-                    rr.log("state/quaternion/y", rr.Scalars(obs['quaternion'][2]))
-                    rr.log("state/quaternion/z", rr.Scalars(obs['quaternion'][3]))
+    # --- Policy observations ---
+    if obs_data:
+        for i, axis in enumerate(['x', 'y', 'z']):
+            send_scalar_column(
+                f"policy_obs/body_linear_velocity/{axis}",
+                times_sec, loop_iterations, obs_data['body_velocity'][:, i],
+            )
+            send_scalar_column(
+                f"policy_obs/body_angular_velocity/{axis}",
+                times_sec, loop_iterations, obs_data['angular_velocity'][:, i],
+            )
+            send_scalar_column(
+                f"policy_obs/body_gravity/{axis}",
+                times_sec, loop_iterations, obs_data['body_gravity'][:, i],
+            )
+            send_scalar_column(
+                f"policy_obs/body_position_setpoint/{axis}",
+                times_sec, loop_iterations, obs_data['body_pos_setpoint'][:, i],
+            )
+            send_scalar_column(
+                f"state/position_world/{axis}",
+                times_sec, loop_iterations, obs_data['position'][:, i],
+            )
+            send_scalar_column(
+                f"state/velocity_world/{axis}",
+                times_sec, loop_iterations, obs_data['velocity_world'][:, i],
+            )
 
-                    # ========== DRONE POSE VISUALIZATION ==========
-                    if log_drone_pose is not None:
-                        # Convert quaternion from [w, x, y, z] to [x, y, z, w] for scipy
-                        quat_xyzw = np.array([
-                            obs['quaternion'][1],
-                            obs['quaternion'][2],
-                            obs['quaternion'][3],
-                            obs['quaternion'][0]
-                        ])
-                        log_drone_pose(obs['position_world'], quat_xyzw)
+        for i, comp in enumerate(['w', 'x', 'y', 'z']):
+            send_scalar_column(
+                f"state/quaternion/{comp}",
+                times_sec, loop_iterations, obs_data['quats_wxyz'][:, i],
+            )
 
-                except Exception as e:
-                    print(f"Warning: Error computing policy observations at row {row_count}: {e}")
+    # --- PID values ---
+    for axis, axis_name in enumerate(['roll', 'pitch', 'yaw']):
+        for term in ['P', 'I', 'D', 'F']:
+            key = f'axis{term}[{axis}]'
+            if key in data and isinstance(data[key], np.ndarray):
+                send_scalar_column(f"pid/{term}/{axis_name}", times_sec, loop_iterations, data[key])
 
-            # ========== ALL OTHER BLACKBOX FIELDS ==========
-            # Log PID values
-            for axis, axis_name in enumerate(['roll', 'pitch', 'yaw']):
-                for term in ['P', 'I', 'D', 'F']:
-                    key = f'axis{term}[{axis}]'
-                    if key in data and data[key] is not None:
-                        rr.log(f"pid/{term}/{axis_name}", rr.Scalars(data[key]))
+    # --- Gyro data ---
+    for i, axis in enumerate(['roll', 'pitch', 'yaw']):
+        for gyro_type in ['gyroADC', 'gyroUnfilt']:
+            key = f'{gyro_type}[{i}]'
+            if key in data and isinstance(data[key], np.ndarray):
+                send_scalar_column(f"sensors/{gyro_type}/{axis}", times_sec, loop_iterations, data[key])
 
-            # Log gyro data
-            for i, axis in enumerate(['roll', 'pitch', 'yaw']):
-                for gyro_type in ['gyroADC', 'gyroUnfilt']:
-                    key = f'{gyro_type}[{i}]'
-                    if key in data and data[key] is not None:
-                        rr.log(f"sensors/{gyro_type}/{axis}", rr.Scalars(data[key]))
+    # --- Accelerometer ---
+    for i, axis in enumerate(['x', 'y', 'z']):
+        key = f'accSmooth[{i}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(f"sensors/acc/{axis}", times_sec, loop_iterations, data[key])
 
-            # Log accelerometer
-            for i, axis in enumerate(['x', 'y', 'z']):
-                key = f'accSmooth[{i}]'
-                if key in data and data[key] is not None:
-                    rr.log(f"sensors/acc/{axis}", rr.Scalars(data[key]))
+    # --- Setpoints ---
+    for i, name in enumerate(['roll', 'pitch', 'yaw', 'throttle']):
+        key = f'setpoint[{i}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(f"setpoint/{name}", times_sec, loop_iterations, data[key])
 
-            # Log setpoints
-            for i, name in enumerate(['roll', 'pitch', 'yaw', 'throttle']):
-                key = f'setpoint[{i}]'
-                if key in data and data[key] is not None:
-                    rr.log(f"setpoint/{name}", rr.Scalars(data[key]))
+    # --- Motors ---
+    for i in range(4):
+        key = f'motor[{i}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(f"motors/output/m{i}", times_sec, loop_iterations, data[key])
 
-            # Log motors
-            for i in range(4):
-                key = f'motor[{i}]'
-                if key in data and data[key] is not None:
-                    rr.log(f"motors/output/m{i}", rr.Scalars(data[key]))
+    # --- eRPM ---
+    for i in range(4):
+        key = f'eRPM[{i}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(f"motors/erpm/m{i}", times_sec, loop_iterations, data[key])
 
-            # Log eRPM
-            for i in range(4):
-                key = f'eRPM[{i}]'
-                if key in data and data[key] is not None:
-                    rr.log(f"motors/erpm/m{i}", rr.Scalars(data[key]))
+    # --- Battery ---
+    for col_name, entity in [
+        ('vbatLatest (V)', 'battery/voltage'),
+        ('amperageLatest (A)', 'battery/current'),
+        ('energyCumulative (mAh)', 'battery/energy'),
+    ]:
+        if col_name in data and isinstance(data[col_name], np.ndarray):
+            send_scalar_column(entity, times_sec, loop_iterations, data[col_name])
 
-            # Log battery
-            if 'vbatLatest (V)' in data and data['vbatLatest (V)'] is not None:
-                rr.log("battery/voltage", rr.Scalars(data['vbatLatest (V)']))
-            if 'amperageLatest (A)' in data and data['amperageLatest (A)'] is not None:
-                rr.log("battery/current", rr.Scalars(data['amperageLatest (A)']))
-            if 'energyCumulative (mAh)' in data and data['energyCumulative (mAh)'] is not None:
-                rr.log("battery/energy", rr.Scalars(data['energyCumulative (mAh)']))
+    # --- Debug values ---
+    for i in range(8):
+        key = f'debug[{i}]'
+        if key in data and isinstance(data[key], np.ndarray):
+            send_scalar_column(f"debug/{i}", times_sec, loop_iterations, data[key])
 
-            # Log debug values and interpret as RL_TOOLS data if present
-            debug_values = {}
-            for i in range(8):
-                key = f'debug[{i}]'
-                if key in data and data[key] is not None:
-                    debug_values[i] = data[key]
-                    rr.log(f"debug/{i}", rr.Scalars(data[key]))
+    # --- RL_TOOLS debug (scaled semantic values) ---
+    has_debug = all(
+        f'debug[{i}]' in data and isinstance(data[f'debug[{i}]'], np.ndarray)
+        for i in range(7)
+    )
+    if has_debug:
+        for i, (name, scale) in RL_TOOLS_DEBUG_MAPPING.items():
+            send_scalar_column(
+                f"rl_state/{name}",
+                times_sec, loop_iterations, data[f'debug[{i}]'] * scale,
+            )
 
-            # If we have all 7 RL_TOOLS debug values, interpret semantically
-            if len(debug_values) >= 7:
-                # Log scaled values with semantic names
-                for i, (name, scale) in RL_TOOLS_DEBUG_MAPPING.items():
-                    if i in debug_values:
-                        rr.log(f"rl_state/{name}", rr.Scalars(debug_values[i] * scale))
+    # --- RSSI ---
+    if 'rssi' in data and isinstance(data['rssi'], np.ndarray):
+        send_scalar_column("radio/rssi", times_sec, loop_iterations, data['rssi'])
 
-                # Render drone pose from debug fields
-                if log_drone_pose is not None:
-                    try:
-                        pos = np.array([
-                            debug_values[0] * 0.001,
-                            debug_values[1] * 0.001,
-                            debug_values[2] * 0.001
-                        ])
-                        quat_xyzw = np.array([
-                            debug_values[4] * 0.0001,  # x
-                            debug_values[5] * 0.0001,  # y
-                            debug_values[6] * 0.0001,  # z
-                            debug_values[3] * 0.0001   # w
-                        ])
-                        log_drone_pose(pos, quat_xyzw)
-                    except Exception as e:
-                        pass  # Skip pose logging on error
+    t_send = time.time()
+    print(f"Sent scalar columns in {t_send - t_send_start:.3f}s")
 
-            # Log RSSI
-            if 'rssi' in data and data['rssi'] is not None:
-                rr.log("radio/rssi", rr.Scalars(data['rssi']))
+    # ===== PHASE 4: Per-row logging (text logs, drone pose) =====
+    t_perrow_start = time.time()
 
-            # Log flags as text
-            if 'flightModeFlags (flags)' in data and data['flightModeFlags (flags)'] is not None:
-                rr.log("status/flight_mode", rr.TextLog(str(data['flightModeFlags (flags)'])))
-            if 'failsafePhase (flags)' in data and data['failsafePhase (flags)'] is not None:
-                rr.log("status/failsafe", rr.TextLog(str(data['failsafePhase (flags)'])))
+    # Flight mode flags (only log on change)
+    if 'flightModeFlags (flags)' in data:
+        flags = data['flightModeFlags (flags)']
+        prev = None
+        for i, flag in enumerate(flags if isinstance(flags, list) else flags.tolist()):
+            if flag != prev and not (isinstance(flag, float) and np.isnan(flag)):
+                rr.set_time("time_us", timestamp=times_sec[i])
+                rr.set_time("loop_iteration", sequence=int(loop_iterations[i]))
+                rr.log("status/flight_mode", rr.TextLog(str(flag)))
+                prev = flag
 
-            row_count += 1
-            if row_count % 1000 == 0:
-                print(f"Processed {row_count} rows...")
+    if 'failsafePhase (flags)' in data:
+        flags = data['failsafePhase (flags)']
+        prev = None
+        for i, flag in enumerate(flags if isinstance(flags, list) else flags.tolist()):
+            if flag != prev and not (isinstance(flag, float) and np.isnan(flag)):
+                rr.set_time("time_us", timestamp=times_sec[i])
+                rr.set_time("loop_iteration", sequence=int(loop_iterations[i]))
+                rr.log("status/failsafe", rr.TextLog(str(flag)))
+                prev = flag
 
-    print(f"\nCompleted! Logged {row_count} rows to Rerun.")
+    # Drone pose visualization (batched via send_columns)
+    drone_model = "drone/drone_model"
+    drone_positions = None
+    drone_quaternions = None
+
+    if obs_data:
+        drone_positions = obs_data['position']
+        drone_quaternions = obs_data['quats_xyzw']
+
+    # Debug-based pose overwrites RC-based if both present
+    if has_debug:
+        drone_positions = np.column_stack([
+            data['debug[0]'] * 0.001,
+            data['debug[1]'] * 0.001,
+            data['debug[2]'] * 0.001,
+        ])
+        drone_quaternions = np.column_stack([
+            data['debug[4]'] * 0.0001,  # x
+            data['debug[5]'] * 0.0001,  # y
+            data['debug[6]'] * 0.0001,  # z
+            data['debug[3]'] * 0.0001,  # w
+        ])
+
+    if drone_positions is not None:
+        # Log static assets (Asset3D model + camera) once
+        drone_obj_path = Path(__file__).parent.parent / "sitl" / "sitl" / "Drone.obj"
+        if drone_obj_path.exists():
+            rr.log(drone_model, rr.Asset3D(path=drone_obj_path), static=True)
+            rr.log(
+                f"{drone_model}/camera",
+                rr.Transform3D(
+                    translation=[0.03, 0, 0.04],
+                    quaternion=Rotation.from_euler('y', -20, degrees=True).as_quat(),
+                ),
+                rr.Pinhole(
+                    fov_y=1.2,
+                    aspect_ratio=1.7777778,
+                    camera_xyz=rr.ViewCoordinates.FLU,
+                    image_plane_distance=0.1,
+                    color=[255, 128, 0],
+                    line_width=0.003,
+                ),
+            )
+
+        # Batch send Transform3D + axes for all timesteps
+        # Normalize quaternions for rerun (scipy's as_quat may not be unit)
+        quats_for_rr = Rotation.from_quat(drone_quaternions).as_quat()  # re-normalize
+
+        rr.send_columns(
+            drone_model,
+            indexes=[
+                rr.TimeColumn("time_us", timestamp=times_sec),
+                rr.TimeColumn("loop_iteration", sequence=loop_iterations),
+            ],
+            columns=[
+                *rr.Transform3D.columns(
+                    translation=drone_positions,
+                    quaternion=quats_for_rr,
+                ),
+                *rr.TransformAxes3D.columns(
+                    axis_length=np.full(N, 0.1, dtype=np.float32),
+                ),
+            ],
+        )
+
+    t_perrow = time.time()
+    print(f"Per-row logging (text + drone pose) in {t_perrow - t_perrow_start:.3f}s")
+
+    t_total = t_perrow - t_start
+    print(f"\nCompleted! Logged {N} rows to Rerun.")
+    print(f"  CSV loading:      {t_load - t_start:.3f}s")
+    print(f"  Compute obs:      {t_compute - t_compute_start:.3f}s")
+    print(f"  send_columns:     {t_send - t_send_start:.3f}s")
+    print(f"  Per-row logging:  {t_perrow - t_perrow_start:.3f}s")
+    print(f"  Total:            {t_total:.3f}s")
 
 
 def main():
