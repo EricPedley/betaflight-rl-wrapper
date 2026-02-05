@@ -52,8 +52,6 @@ bool previous_rl_tools_tick_set = false;
 uint32_t rl_tools_tick = 0;
 
 
-bool first_run = true;
-bool active = true;
 TI activation_tick = 0;
 T acceleration_integral[3] = {0, 0, 0};
 #if defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20) || defined(RL_TOOLS_BETAFLIGHT_TARGET_SAVAGEBEE_PUSHER)
@@ -186,13 +184,6 @@ void reset(){
 }
 
 
-extern "C" void rl_tools_status(void){
-    cliPrintLinef("Neural Network Policy Active");
-    cliPrintLinef("Input dim: %d, Output dim: %d", NN_INPUT_DIM, NN_OUTPUT_DIM);
-    cliPrintLinef("MOTOR_FACTOR: %d / %d", (int)(MOTOR_FACTOR*PRINTF_FACTOR), PRINTF_FACTOR);
-}
-
-bool prevArmed=false;
 
 // Quaternion conjugate (inverse for unit quaternions)
 // q format: [w, x, y, z]
@@ -383,16 +374,9 @@ extern "C" void rl_tools_control(bool armed){
 
     // Apply actions to motors
     for(TI action_i = 0; action_i < NN_OUTPUT_DIM; action_i++){
-        if(active){
-            T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
-            clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
-            motor[action_i] = 1000 + clipped_action * 1000;
-            // motor[target_indices[action_i]] = (int)((0.5+action_i/8.0f) * 1000);
-        }
-        else{
-            #if defined(RL_TOOLS_BETAFLIGHT_TARGET_BETAFPVG473) || defined(RL_TOOLS_BETAFLIGHT_TARGET_PAVO20)
-            motor[action_i] = 0; // stop the motors
-            #endif
-        }
+        T clipped_action = clip(nn_output[action_i], (T)-1, (T)1);
+        clipped_action = (clipped_action * 0.5f + 0.5f); // [0, 1]
+        motor[action_i] = 1000 + clipped_action * 1000;
+        // motor[target_indices[action_i]] = (int)((0.5+action_i/8.0f) * 1000);
     }
 }
