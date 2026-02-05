@@ -167,7 +167,7 @@ static constexpr int NN_OUTPUT_DIM = 4;
 static T target_orientation[4] = {1, 0, 0, 0};
 
 float nn_input_rpms[4] = {0, 0, 0, 0};
-float rpm_max = 39000.0; // TODO: un-hardcode this
+float rpm_max = 39366.67; // TODO: un-hardcode this
 
 
 // Rotate vector using transpose of rotation matrix (world to body)
